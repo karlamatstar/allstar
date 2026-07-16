@@ -84,6 +84,47 @@ def test_every_ai_test_has_a_specific_user_facing_description():
         assert "자동" in description
 
 
+def test_api_performance_description_explains_independent_phases():
+    description = qa_control.TEST_DESCRIPTIONS["서버 연결 성능 종합 시험 (API)"]
+
+    assert all(label in description for label in ("1명", "10명", "25명"))
+    assert "단계별 독립 실행" in description
+    assert "5초간 안정화" in description
+
+
+def test_every_k6_test_description_names_k6():
+    descriptions_by_id = {
+        qa_control.TEST_IDS[title]: description
+        for title, description in qa_control.TEST_DESCRIPTIONS.items()
+    }
+
+    for test_id in qa_control.K6_REQUIRED_TEST_IDS:
+        assert "K6" in descriptions_by_id[test_id]
+
+
+def test_find_k6_prefers_run_folder_then_system_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(qa_control, "ROOT", tmp_path)
+    run_dir = tmp_path / "RUN"
+    run_dir.mkdir()
+    bundled = run_dir / "k6.exe"
+    bundled.write_bytes(b"")
+    monkeypatch.setattr(qa_control.shutil, "which", lambda _name: "C:/tools/k6.exe")
+
+    assert qa_control.find_k6() == str(bundled)
+
+    bundled.unlink()
+    assert qa_control.find_k6() == "C:/tools/k6.exe"
+
+
+def test_missing_k6_message_points_to_the_official_install_page():
+    source = QA_CONTROL_PATH.read_text(encoding="utf-8")
+
+    assert qa_control.K6_INSTALL_URL == "https://grafana.com/docs/k6/latest/set-up/install-k6/"
+    assert "K6를 다운로드·설치한 뒤" in source
+    assert 'messagebox.askyesno("K6 설치 필요", message)' in source
+    assert "webbrowser.open(K6_INSTALL_URL)" in source
+
+
 def test_gui_descriptions_do_not_expose_report_folder_paths():
     source = QA_CONTROL_PATH.read_text(encoding="utf-8")
 

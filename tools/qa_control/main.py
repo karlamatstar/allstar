@@ -2,16 +2,22 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from allstar.shared.qa_reporting import QAReportSession
+
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 PY = str(PYTHON if PYTHON.exists() else sys.executable)
 LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
@@ -37,34 +43,60 @@ LOAD_SETTINGS = {
     "순간 급증 시험 (Spike Test)": ("200", "60"),
 }
 
+TEST_IDS = {
+    "기본 동작 시험 (Smoke Test)": "ai_smoke",
+    "일반 부하 시험 (Load Test)": "ai_load",
+    "무작위 요청 시험 (Random Test)": "ai_random",
+    "한계 부하 시험 (Stress Test)": "ai_stress",
+    "순간 급증 시험 (Spike Test)": "ai_spike",
+    "장애·기능 검증 시험 (Validation Test)": "ai_validation",
+    "서버 연결 성능 종합 시험 (API)": "ai_api_performance",
+    "서버 연결 끊김 방어 시험 (API)": "ai_api_disconnect",
+    "전체 비AI pytest": "voc_non_ai",
+    "단위 테스트": "voc_unit",
+    **{f"에이전트 교차 테스트 ({profile_id})": f"voc_profile_{profile_id.lower()}" for profile_id in "ABCD"},
+}
+
+K6_REQUIRED_TEST_IDS = {
+    "ai_smoke",
+    "ai_load",
+    "ai_random",
+    "ai_stress",
+    "ai_spike",
+    "ai_validation",
+    "ai_api_performance",
+}
+K6_INSTALL_URL = "https://grafana.com/docs/k6/latest/set-up/install-k6/"
+
 TEST_DESCRIPTIONS = {
     "기본 동작 시험 (Smoke Test)": (
-        "가상 사용자 1명이 서버 상태와 모의 채팅을 각각 한 번 호출하는 가장 가벼운 시험입니다.\n"
+        "K6 부하 시험 도구로 가상 사용자 1명이 서버 상태와 모의 채팅을 각각 한 번 호출하는 가장 가벼운 시험입니다.\n"
         "서버가 켜져 있는지, 기본 연결과 HTTP 200 응답이 정상인지 빠르게 확인할 수 있습니다. 시험이 끝나면 결과가 자동 정리됩니다."
     ),
     "일반 부하 시험 (Load Test)": (
-        "설정한 가상 인원이 일정 시간 동안 모의 채팅 요청을 계속 보내는 일상 부하 시험입니다.\n"
+        "K6 부하 시험 도구로 설정한 가상 인원이 일정 시간 동안 모의 채팅 요청을 계속 보내는 일상 부하 시험입니다.\n"
         "지속적인 요청에서 응답 지연, 실패율, 처리 안정성이 기준을 유지하는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
     ),
     "무작위 요청 시험 (Random Test)": (
-        "가상 인원 수를 1초마다 1명부터 설정한 최댓값 사이에서 무작위로 바꾸는 변동 부하 시험입니다.\n"
+        "K6 부하 시험 도구가 가상 인원 수를 1초마다 1명부터 설정한 최댓값 사이에서 무작위로 바꾸는 변동 부하 시험입니다.\n"
         "예측하기 어려운 요청 증감에서 서버가 안정적으로 응답하는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
     ),
     "한계 부하 시험 (Stress Test)": (
-        "가상 인원을 단계적으로 늘려 최댓값을 유지한 뒤 다시 낮추는 한계 부하 시험입니다.\n"
+        "K6 부하 시험 도구로 가상 인원을 단계적으로 늘려 최댓값을 유지한 뒤 다시 낮추는 한계 부하 시험입니다.\n"
         "서버의 처리 한계, 고부하 구간의 오류, 부하 감소 후 회복 여부를 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
     ),
     "순간 급증 시험 (Spike Test)": (
-        "가상 인원을 짧은 시간에 최댓값까지 급격히 올렸다가 다시 낮추는 순간 폭주 시험입니다.\n"
+        "K6 부하 시험 도구로 가상 인원을 짧은 시간에 최댓값까지 급격히 올렸다가 다시 낮추는 순간 폭주 시험입니다.\n"
         "갑작스러운 트래픽 급증을 견디는지와 급증 종료 후 정상 상태로 복구되는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
     ),
     "장애·기능 검증 시험 (Validation Test)": (
-        "지연·서버 오류·시간 초과 같은 장애 상황을 k6로 재현하고 전체 기능 검사를 함께 수행합니다.\n"
+        "K6 부하 시험 도구로 지연·서버 오류·시간 초과 같은 장애 상황을 재현하고 전체 기능 검사를 함께 수행합니다.\n"
         "장애 대응과 기존 기능의 정상 동작을 한 번에 확인하며, 완료 후 결함 보고서가 자동 생성됩니다."
     ),
     "서버 연결 성능 종합 시험 (API)": (
-        "여러 대표 질문을 서버 연결 통로(API)로 전송해 응답시간, 실패율, 검사 통과율을 종합 측정합니다.\n"
-        "질문별 성능 차이와 전체 지연 분포를 확인할 수 있으며, 완료 후 성능 보고서가 자동 생성됩니다."
+        "K6 부하 시험 도구로 가상 사용자 1명, 10명, 25명 순서로 서버 연결 통로(API)에 실제 채팅 요청을 보내는 성능 시험입니다.\n"
+        "각 단계가 완전히 끝난 뒤 5초간 안정화하고 다음 단계를 시작하는 단계별 독립 실행 방식이며, "
+        "응답시간과 실패율 변화를 확인할 수 있습니다. 완료 후 성능 보고서가 자동 생성됩니다."
     ),
     "서버 연결 끊김 방어 시험 (API)": (
         "외부 연결 실패 상황을 의도적으로 발생시켜 재시도와 안전한 대체 응답이 동작하는지 확인합니다.\n"
@@ -103,6 +135,14 @@ def two_line_tab_label(title: str) -> str:
     return title
 
 
+def find_k6() -> str | None:
+    """프로젝트에 둔 실행 파일을 우선하고, 없으면 시스템 설치 경로를 찾는다."""
+    bundled = ROOT / "RUN" / "k6.exe"
+    if bundled.exists():
+        return str(bundled)
+    return shutil.which("k6")
+
+
 def validate_load_settings(vus_text: str, duration_text: str) -> tuple[int, int]:
     try:
         vus = int(vus_text)
@@ -132,15 +172,18 @@ class TestTab(tk.Frame):
         detail: str = "",
         load_settings: tuple[str, str] | None = None,
         owner: "QAControl | None" = None,
+        test_id: str | None = None,
     ):
         super().__init__(parent, bg="#202634")
         self.owner = owner
         self.title_text = title
+        self.test_id = test_id or TEST_IDS[title]
         self.command = command
         self.confirm = confirm
         self.process: subprocess.Popen | None = None
         self.cancel_requested = False
         self.started_at: str | None = None
+        self.report_session: QAReportSession | None = None
         self.vus_var = tk.StringVar(value=load_settings[0]) if load_settings else None
         self.duration_var = tk.StringVar(value=load_settings[1]) if load_settings else None
         tk.Label(self, text=title, bg="#202634", fg="#e5ebf5",
@@ -178,8 +221,23 @@ class TestTab(tk.Frame):
         if self.process and self.process.poll() is None:
             messagebox.showinfo("실행 중", "이미 테스트가 실행 중입니다.")
             return
+        k6_bin = find_k6() if self.test_id in K6_REQUIRED_TEST_IDS else None
+        if self.test_id in K6_REQUIRED_TEST_IDS and not k6_bin:
+            message = (
+                "K6 부하 시험 도구가 설치되어 있지 않아 시험을 실행할 수 없습니다.\n\n"
+                "Grafana K6 공식 설치 페이지에서 K6를 다운로드·설치한 뒤 "
+                "QA 컨트롤러를 다시 실행하세요.\n\n"
+                f"공식 설치 안내: {K6_INSTALL_URL}\n\n"
+                "공식 설치 페이지를 지금 열까요?"
+            )
+            self.console.insert("end", "\n[K6 실행 불가] " + message.replace("\n\n", " ").replace("\n", " ") + "\n")
+            self.console.see("end")
+            if messagebox.askyesno("K6 설치 필요", message):
+                webbrowser.open(K6_INSTALL_URL)
+            return
         env = os.environ.copy()
         load_summary = ""
+        report_settings: dict[str, str | int] = {}
         if self.vus_var and self.duration_var:
             try:
                 vus, duration = validate_load_settings(self.vus_var.get(), self.duration_var.get())
@@ -190,6 +248,7 @@ class TestTab(tk.Frame):
             env["SCRIPT_DURATION"] = str(duration)
             env["TARGET_IP"] = "127.0.0.1:8000"
             load_summary = f"설정: 최대 가상 인원 {vus}명 / 실행 시간 {duration}초\n"
+            report_settings.update({"최대 가상 인원(VU)": vus, "실행 시간(초)": duration})
         if self.confirm:
             message = (
                 f"대상: http://localhost:8000\n{load_summary}"
@@ -203,34 +262,86 @@ class TestTab(tk.Frame):
                     "예상 외부 AI 호출: 케이스당 최대 7회, 총 최대 14회\n"
                     "실제 외부 AI 연결 시험(API)을 실행할까요?"
                 )
+            elif self.test_id == "ai_api_performance":
+                message = (
+                    "대상: http://localhost:8000\n"
+                    "실행 단계: 1명 → 10명 → 25명 (단계별 독립 실행)\n"
+                    "단계 사이 안정화: 5초\n"
+                    "예상 실제 채팅 요청: 정상 완료 시 총 36건\n"
+                    "실제 외부 AI 호출이 포함됩니다. 성능 시험을 실행할까요?"
+                )
             if not messagebox.askyesno("실행 전 확인", message):
                 return
         if self.owner and not self.owner.acquire_execution(self):
             return
         self.cancel_requested = False
         self.started_at = datetime.now().astimezone().isoformat(timespec="seconds")
-        self.console.insert("end", "\n> " + " ".join(self.command) + "\n")
+        if self.test_id.startswith("voc_profile_"):
+            report_settings.update({"프로필": self.test_id[-1].upper(), "대표 사례": "TC-01, TC-02"})
+        if self.test_id == "ai_api_performance":
+            report_settings.update({
+                "실행 단계": "1명 → 10명 → 25명",
+                "실행 방식": "단계별 독립 실행",
+                "단계 사이 안정화": "5초",
+                "최대 실제 채팅 요청": 36,
+            })
+        report_command = list(self.command)
+        if report_command and report_command[0].lower() == "k6" and k6_bin:
+            report_command[0] = k6_bin
+        self.report_session = QAReportSession(
+            test_id=self.test_id,
+            test_name=self.title_text,
+            command=report_command,
+            settings=report_settings,
+        )
+        execution_command = self.report_session.command_for_execution()
+        try:
+            self.report_session.start()
+        except Exception as error:
+            self.console.insert("end", f"\n[로그 준비 실패] {error}\n")
+            append_run_event(self._run_event("finished", "start_failed", error=str(error)))
+            if self.owner:
+                self.owner.release_execution(self)
+            return
+        self.console.insert("end", "\n> " + " ".join(execution_command) + "\n")
         if load_summary:
             self.console.insert("end", load_summary)
-        append_run_event(self._run_event("started", "running", settings=load_summary.strip()))
+        append_run_event(self._run_event(
+            "started", "running", settings=report_settings,
+            run_id=self.report_session.run_id,
+            log=str(self.report_session.log_path.relative_to(ROOT)),
+        ))
         try:
             self.process = subprocess.Popen(
-                self.command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                execution_command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace",
                 env=env,
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
         except Exception as error:
             self.console.insert("end", f"\n[시작 실패] {error}\n")
-            append_run_event(self._run_event("finished", "start_failed", error=str(error)))
-            if self.owner:
-                self.owner.release_execution(self)
+            try:
+                report = self.report_session.finish("start_failed", None, error=str(error))
+                append_run_event(self._run_event(
+                    "finished", "start_failed", error=str(error),
+                    run_id=self.report_session.run_id, report=report["report"],
+                ))
+            except Exception as report_error:
+                self._append(f"[보고서 생성 실패] {report_error}\n")
+                append_run_event(self._run_event(
+                    "finished", "start_failed", error=str(error), report_error=str(report_error),
+                ))
+            finally:
+                if self.owner:
+                    self.owner.release_execution(self)
             return
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
         assert self.process and self.process.stdout
         for line in self.process.stdout:
+            if self.report_session:
+                self.report_session.append_output(line)
             self.after(0, self._append, line)
         code = self.process.wait()
         status = "cancelled" if self.cancel_requested else "completed" if code == 0 else "failed"
@@ -251,10 +362,20 @@ class TestTab(tk.Frame):
     def _finish(self, status: str, code: int):
         labels = {"completed": "완료", "failed": "실패", "cancelled": "사용자 중지"}
         self._append(f"\n[실행 상태: {labels[status]} / 종료 코드: {code}]\n")
-        append_run_event(self._run_event("finished", status, exit_code=code))
-        self.process = None
-        if self.owner:
-            self.owner.release_execution(self)
+        try:
+            report = self.report_session.finish(status, code) if self.report_session else None
+            append_run_event(self._run_event(
+                "finished", status, exit_code=code,
+                run_id=self.report_session.run_id if self.report_session else None,
+                report=report["report"] if report else None,
+            ))
+        except Exception as error:
+            self._append(f"[보고서 생성 실패] {error}\n")
+            append_run_event(self._run_event("finished", status, exit_code=code, report_error=str(error)))
+        finally:
+            self.process = None
+            if self.owner:
+                self.owner.release_execution(self)
 
     def _append(self, text: str):
         self.console.insert("end", text)
@@ -356,7 +477,7 @@ class QAControl(tk.Tk):
             )
 
     def _add_test_tab(self, notebook, tab_text: str, title: str, command: list[str], confirm: bool = False, **kwargs):
-        tab = TestTab(notebook, title, command, confirm, owner=self, **kwargs)
+        tab = TestTab(notebook, title, command, confirm, owner=self, test_id=TEST_IDS[title], **kwargs)
         self.test_tabs.append(tab)
         notebook.add(tab, text=tab_text)
 

@@ -14,6 +14,7 @@ import grpc
 # CSV 파일 읽기/쓰기 지원
 import csv
 import re
+from pathlib import Path
 
 # ============ Protocol Buffers 생성 파일 임포트 ============
 # voc.proto 파일로부터 생성된 메시지 및 서비스 정의
@@ -22,6 +23,20 @@ from allstar.voc.protocol import voc_pb2, voc_pb2_grpc
 
 # ============ 필터 매칭 헬퍼 ============
 _TOKEN_PATTERN = re.compile(r"[가-힣A-Za-z0-9]+")
+_LOCAL_DEFAULT_CSV = os.environ.get(
+    "A2A_VOC_CSV",
+    str(Path(__file__).resolve().parents[1] / "data" / "voc.csv"),
+)
+
+
+def resolve_csv_path(csv_path: str) -> str:
+    """호스트 기본 VOC 경로를 실행 중인 에이전트의 기본 경로로 변환한다."""
+    if os.path.exists(csv_path):
+        return csv_path
+    requested_name = csv_path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if requested_name == "voc.csv" and os.path.exists(_LOCAL_DEFAULT_CSV):
+        return _LOCAL_DEFAULT_CSV
+    return csv_path
 
 # 질문 지시어이거나 VOC 전반에 너무 흔해 관련성 판별에 부적합한 단어.
 _SEARCH_NOISE = {
@@ -160,6 +175,8 @@ class RetrieverAgent:
         Raises:
             FileNotFoundError: CSV 파일이 존재하지 않을 때
         """
+        csv_path = resolve_csv_path(csv_path)
+
         # ============ CSV 파일 존재 여부 확인 ============
         # 파일이 없으면 조기 종료하여 불필요한 처리를 방지합니다
         if not os.path.exists(csv_path):

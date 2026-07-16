@@ -4,6 +4,8 @@ import { Trend } from 'k6/metrics';
 
 const TARGET_IP = __ENV.TARGET_IP || '127.0.0.1:8000';
 const BASE_URL = `http://${TARGET_IP}`;
+const PHASE_ID = __ENV.PHASE_ID || 'phase1';
+const PHASE_VUS = Math.max(1, parseInt(__ENV.PHASE_VUS || '1', 10));
 
 // 커스텀 지표
 const llmLatency = new Trend('llm_latency');
@@ -11,26 +13,11 @@ const ruleLatency = new Trend('rule_latency'); // 현재 구조상 rule_latency�
 
 export const options = {
   scenarios: {
-    phase1: {
+    independent_phase: {
       executor: 'per-vu-iterations',
-      vus: 1,
+      vus: PHASE_VUS,
       iterations: 1,
-      startTime: '0s',
-      maxDuration: '1m',
-    },
-    phase2: {
-      executor: 'per-vu-iterations',
-      vus: 10,
-      iterations: 1,
-      startTime: '20s',
-      maxDuration: '1m',
-    },
-    phase3: {
-      executor: 'per-vu-iterations',
-      vus: 25,
-      iterations: 1,
-      startTime: '40s',
-      maxDuration: '1m',
+      maxDuration: '2m',
     },
   },
   thresholds: {
@@ -69,6 +56,8 @@ export default function () {
     tags: {
       tc_id: tc.id,
       tc_category: tc.type,
+      phase_id: PHASE_ID,
+      phase_vus: String(PHASE_VUS),
     },
   };
 
@@ -85,9 +74,9 @@ export default function () {
   if (res.status === 200) {
     const json = res.json();
     if (json && json.latency_ms) {
-      llmLatency.add(json.latency_ms, { tc_id: tc.id });
+      llmLatency.add(json.latency_ms, { tc_id: tc.id, phase_id: PHASE_ID, phase_vus: String(PHASE_VUS) });
     } else {
-      llmLatency.add(res.timings.duration, { tc_id: tc.id });
+      llmLatency.add(res.timings.duration, { tc_id: tc.id, phase_id: PHASE_ID, phase_vus: String(PHASE_VUS) });
     }
   }
 

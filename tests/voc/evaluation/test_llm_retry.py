@@ -78,3 +78,8 @@ def test_report_excludes_na_from_average(tmp_path, monkeypatch):
     assert "평균 점수: 80.0" in report
     assert "API 실패로 미평가(N/A): 1" in report
     assert "모든 API 재시도 실패" in report
+    assert (tmp_path / "llm_judge_result.csv").exists()
+    assert (tmp_path / "llm_judge_result.json").exists()
+    assert (tmp_path / "assets" / "case_score_comparison.png").read_bytes().startswith(b"\x89PNG")
+    assert (tmp_path / "assets" / "case_duration_comparison.png").read_bytes().startswith(b"\x89PNG")
+    assert (tmp_path / "assets" / "criteria_score_rate.png").read_bytes().startswith(b"\x89PNG")

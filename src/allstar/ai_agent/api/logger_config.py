@@ -1,11 +1,14 @@
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 
 from allstar.ai_agent.api.config import CONVERSATION_LOG_DIR, JUDGMENT_LOG_DIR
 
 CONVERSATION_LOG_FILE = CONVERSATION_LOG_DIR / "conversations.jsonl"
 EVALUATION_LOG_FILE = JUDGMENT_LOG_DIR / "live_evaluations.jsonl"
+CONVERSATION_LOG_LOCK = threading.Lock()
+EVALUATION_LOG_LOCK = threading.Lock()
 
 logger = logging.getLogger("ai_agent")
 logger.setLevel(logging.INFO)
@@ -29,7 +32,7 @@ def log_conversation(question: str, answer: str, latency_ms: float, status: str 
         "latency_ms": round(latency_ms, 1),
         "status": status,
     }
-    with open(CONVERSATION_LOG_FILE, "a", encoding="utf-8") as f:
+    with CONVERSATION_LOG_LOCK, open(CONVERSATION_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
@@ -43,5 +46,5 @@ def log_evaluation(question: str, evaluation: dict, model: str = "api", request_
         "model": model,
         "evaluation": evaluation,
     }
-    with open(EVALUATION_LOG_FILE, "a", encoding="utf-8") as f:
+    with EVALUATION_LOG_LOCK, open(EVALUATION_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

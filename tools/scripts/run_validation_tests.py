@@ -23,9 +23,14 @@ def run_k6():
     result_file = PROJECT_ROOT / "ops" / "performance" / "results" / "chaos_result.json"
     os.makedirs(result_file.parent, exist_ok=True)
 
-    cmd = ["k6", "run", f"--summary-export={result_file}", str(script)]
-    # Use bundled k6 if available
+    # 프로젝트 RUN 폴더에 둔 실행 파일을 우선하고, 없으면 시스템 설치 경로를 사용한다.
     k6_exe = PROJECT_ROOT / "RUN" / "k6.exe"
+    k6_bin = str(k6_exe) if k6_exe.exists() else shutil.which("k6")
+    if not k6_bin:
+        message = "[오류] K6 실행 파일을 찾지 못했습니다. RUN/k6.exe를 두거나 K6를 시스템에 설치하세요."
+        print(message, flush=True)
+        return result_file, message
+    cmd = [k6_bin, "run", f"--summary-export={result_file}", str(script)]
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NO_WINDOW

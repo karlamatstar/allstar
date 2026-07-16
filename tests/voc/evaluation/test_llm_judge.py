@@ -6,6 +6,9 @@
 #
 # 실행: pytest quality_diagnosis/test_llm_judge.py -v
 
+import json
+import sys
+
 import pytest
 from allstar.voc.evaluation.judge_prompt import build_judge_prompt, decide_verdict, parse_judge_response
 from allstar.voc.evaluation.runtime_support import load_json
@@ -102,6 +105,13 @@ def test_llm_judge_module_importable():
     assert callable(llm_judge.main)
 
 
+def test_llm_judge_module_entrypoint_has_sys_available():
+    """모듈 직접 실행 종료 처리에서 sys.exit를 안전하게 사용할 수 있어야 한다."""
+    from allstar.voc.evaluation import llm_judge
+
+    assert llm_judge.sys is sys
+
+
 def test_judge_empty_row_preserves_stage_timings(rubric):
     """미평가·장애 케이스도 파이프라인·Judge·전체 시간이 기록되는가."""
     from allstar.voc.evaluation import llm_judge
@@ -114,3 +124,36 @@ def test_judge_empty_row_preserves_stage_timings(rubric):
     assert row["pipeline_seconds"] == 12.3
     assert row["judge_seconds"] == 4.5
     assert row["total_seconds"] == 16.8
+
+
+def test_multiple_case_selection_keeps_definition_order():
+    from allstar.voc.evaluation import llm_judge
+
+    cases = [{"case_id": "TC-01"}, {"case_id": "TC-02"}, {"case_id": "TC-03"}]
+
+    selected = llm_judge.select_cases(cases, ["TC-02", "TC-01"])
+
+    assert [case["case_id"] for case in selected] == ["TC-01", "TC-02"]
+
+
+def test_multiple_case_selection_rejects_unknown_case():
+    from allstar.voc.evaluation import llm_judge
+
+    with pytest.raises(ValueError, match="TC-99"):
+        llm_judge.select_cases([{"case_id": "TC-01"}], ["TC-01", "TC-99"])
+
+
+def test_judge_run_log_keeps_full_rows_for_report_rebuild(tmp_path, monkeypatch):
+    from allstar.voc.evaluation import llm_judge
+
+    monkeypatch.setattr(llm_judge, "JUDGE_LOG_DIR", tmp_path)
+    run_log = llm_judge.JudgeRunLog([{"case_id": "TC-01", "judge_enabled": True}])
+    run_log.update([{
+        "case_id": "TC-01", "total": 82, "analysis": "실제 파이프라인 답변",
+        "Interpreter 해석 정확성": 14, "rationale": "상세 채점 근거",
+    }])
+
+    saved = json.loads(run_log.path.read_text(encoding="utf-8"))["case_results"][0]
+    assert saved["analysis"] == "실제 파이프라인 답변"
+    assert saved["Interpreter 해석 정확성"] == 14
+    assert saved["rationale"] == "상세 채점 근거"

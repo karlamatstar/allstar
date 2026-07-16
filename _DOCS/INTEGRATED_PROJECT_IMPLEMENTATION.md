@@ -26,6 +26,8 @@
 - 비동기 `/chat` 요청과 `/chat/{request_id}/status` 조회
 - `/profiles`, `/health`, `/agents/health`, `/metrics`
 - 대화·Judge JSONL 로그 분리 저장
+- AI Agent 실시간 채팅의 백그라운드 채점 완료 후 최신 Markdown·CSV·PNG 보고서 자동 갱신
+- AI Agent 실시간 보고서의 상단 품질 요약 표·판정/항목점수/응답시간 그래프와 접이식 상세 목록
 - A~D 설명과 질문별 프로필을 포함하는 VOC 실시간 Markdown 리포트
 - `AI Agent QA AllStar` Streamlit 통합 화면의 AI 상담(AI Agent)·고객 의견 분석(VOC)·결과 보고서(Report)·상태 확인(Monitoring) 영역
 - VOC 챗봇 A~D 카드와 실제 모델·추론 설정 표시
@@ -121,12 +123,17 @@ _OUTPUT/logs/voc/live/conversations/YYYY-MM-DD.jsonl
 _OUTPUT/logs/voc/live/judgments/YYYY-MM-DD.jsonl
 _OUTPUT/logs/voc/testcase/a~d/
 _OUTPUT/logs/voc/cross_validation/
+_OUTPUT/logs/qa/qa_runs.jsonl
+_OUTPUT/logs/qa/runs/{test_id}/{run_id}.log
+_OUTPUT/logs/qa/k6/{test_id}/{run_id}_summary.json
 _OUTPUT/logs/services/
 _OUTPUT/reports/manifests/
+_OUTPUT/reports/manifests/qa/
+_OUTPUT/reports/qa/latest/
 _OUTPUT/reports/ai_agent/batch/
 _OUTPUT/reports/ai_agent/batch/history/
 _OUTPUT/reports/ai_agent/live/
-_OUTPUT/reports/ai_agent/live/history/
+_OUTPUT/reports/ai_agent/live/assets/
 _OUTPUT/reports/voc/live/latest/voc_live_report.md
 _OUTPUT/reports/voc/live/history/
 _OUTPUT/reports/voc/testcase/a~d/
@@ -138,7 +145,15 @@ _OUTPUT/reports/performance/
 
 원본 로그와 생성 리포트는 서로 다른 최상위 폴더에 저장한다. 실시간 리포트는 해당 서비스의 실시간 대화·채점 로그만 사용하며 테스트케이스 및 교차검증 결과와 섞지 않는다. 2026-07-16에 기존 `quality/reports/live_log/`, `quality/reports/testcase_log/` 사용을 종료하고 위 구조로 코드·화면·테스트 경로를 이전했다.
 
+AI Agent 실시간 보고서는 사용자 답변을 반환한 뒤 백그라운드에서 두 답변의 채점 로그를 모두 저장하고 자동 갱신한다. 대화·채점 JSONL은 계속 누적하지만 보고서 Markdown·CSV·PNG는 최신본만 유지한다. 상단 요약 표와 그래프를 먼저 표시하고 FAIL·REVIEW·N/A 상세 및 최근 채팅 목록은 접기·펼치기로 제공한다. 세부 기준은 `AI_AGENT_LIVE_REPORT_AUTOMATION.md`를 따른다.
+
 실행 코드가 리포트 폴더에 섞이지 않도록 챗봇 결함 기록기는 `src/allstar/ai_agent/evaluation/defect_logger.py`에 두고, Markdown 결과만 `_OUTPUT/reports/defects/chatbot/`에 저장한다. 성능 리포트 화면도 `_OUTPUT/reports/performance/`를 사용한다.
+
+QA 관리 GUI의 14개 시험은 공통 실행 기록 자동화를 사용한다. 실행별 원문 로그와 k6 원본 요약은 누적하고, 시험별 실행 요약 Markdown과 전체 최신 실행 요약은 최근 결과로 덮어쓴다. 최신 manifest를 함께 갱신하므로 후속 통합 보고서 대시보드는 폴더 구조를 추측하지 않고 동일한 형식을 읽을 수 있다. 세부 기준은 `QA_REPORT_AUTOMATION.md`에 기록한다.
+
+서버 연결 성능 종합 시험은 기존의 0초·20초·40초 예약 실행을 사용하지 않는다. `1명 → 10명 → 25명` 단계를 각각 별도의 k6 프로세스로 실행하고, 앞 단계가 끝난 뒤 5초간 안정화한 후 다음 단계를 시작한다. 원본 성능 데이터에는 단계 식별자를 직접 저장해 긴 응답이 발생해도 보고서의 단계별 결과가 섞이지 않게 한다.
+
+공통 QA Markdown은 정식 품질 보고서가 아니라 실행 상태와 증적을 연결하는 보조 요약이다. VOC A~D 테스트케이스는 프로필 한 번 실행마다 TC-01·TC-02를 단일 Judge 프로세스로 처리하고, 실행 JSON 로그에서 프로필별 Markdown·CSV·JSON·PNG 그래프를 재생성한다. 프로필 결과가 2개 이상이면 A~D 종합 비교 보고서를 최신 결과로 갱신한다. 세부 기준은 `VOC_TESTCASE_REPORT_AUTOMATION.md`를 따른다.
 
 ## 5. 2026-07-16 검증 결과
 
@@ -218,32 +233,54 @@ _OUTPUT/reports/performance/
 - QA 전체 탭 공통 실행 잠금, 실행·중지 버튼 상태 전환, 비동기 중지 확인
 - 시작·완료·실패·사용자 중지 상태의 JSONL 기록 확인
 - 장애·기능 검증 시험의 실제 AI 호출 파일과 `end_to_end` 기본 제외 확인
-- 통합 테스트 35개 통과
-- 실제 외부 AI 호출 테스트를 제외한 비AI 회귀 테스트 126개 통과, 2개 선택 제외
+- 공통 누적 로그, 최신 실행 요약, VOC 단일 정식 보고서, 로그 재생성, PNG 그래프와 manifest 검증 포함 통합 테스트 42개 통과
+- 실제 외부 AI 호출 테스트를 제외한 비AI 회귀 테스트 140개 통과, 2개 선택 제외
 
 ### 디렉터리 정렬 검증 참고
 
-- 실제 AI API를 호출하는 테스트는 실행하지 않았다.
+- 아래 디렉터리 정렬 검증 당시에는 실제 AI API를 호출하지 않았다. 이후 2026-07-17 보고서 자동화 검증에서 승인된 A 프로필 대표 2건을 별도로 실행했다.
 - 기존 `voc/quality_diagnosis/test_mcp_tools.py` 전체 실행 중 3건은 이번 경로 변경과 무관한 기존 조건(`voc/main.py` 부재, 별도 로컬 에이전트의 CSV 경로, API 키 미설정)으로 실패했다.
 - 경로 변경 대상 모듈과 비AI 회귀 묶음은 위에 기록한 16개 및 72개 테스트로 별도 통과를 확인했다.
 
-### 실행하지 않은 테스트
+### AI Agent 실시간 보고서 자동 갱신 검증
+
+- 검증일: 2026-07-17
+- 채팅 응답 후 두 모델의 백그라운드 채점 로그 저장과 최신 보고서 자동 갱신 순서를 확인
+- 대화·채점 JSONL 누적과 Markdown·CSV·PNG 최신본 덮어쓰기 확인
+- 상단 요약 표, 판정 분포·품질 항목 평균·응답시간 추이 PNG와 접이식 상세 목록 확인
+- N/A·미채점을 FAIL과 분리하고 실제 채점 결과만 통과율·평균점수에 사용하는 기준 확인
+- AI Agent 전용 비API 테스트 10개 통과
+- 전체 비API 회귀 테스트 144개 통과, 환경 조건 3개 건너뜀, 실제 API 종단 테스트 2개 선택 제외
+- 실제 OpenAI·Anthropic 답변·채점 API는 호출하지 않음
+
+### 서버 연결 성능 단계별 독립 실행 검증
+
+- 검증일: 2026-07-17
+- 1명·10명·25명 단계가 서로 다른 k6 실행으로 순서대로 시작되는지 확인
+- 단계 사이 5초 안정화 대기가 정확히 두 번 적용되는지 확인
+- 고정 20초·40초 시작 예약이 제거됐는지 확인
+- 시간 구간이 아니라 `phase1`·`phase2`·`phase3` 식별자로 보고서가 집계되는지 확인
+- 관련 집중 테스트 24개 통과
+- 실제 외부 AI 호출을 제외한 전체 비API 회귀 테스트 149개 통과, 2개 선택 제외
+- 실제 성능 시험과 외부 AI API는 호출하지 않음
+
+### 기본 회귀에서 실행하지 않는 테스트
 
 - `tests/test_negative_cases.py`: 실제 OpenAI API 호출
 - `tests/test_quality_pipeline.py`: 대표 2건 실제 OpenAI API 호출
-- QA GUI의 VOC A~D: 각 프로필 대표 `TC-01`, `TC-02` 실제 API 호출
+- QA GUI의 VOC B~D 실제 API 호출
 
-실제 API 검증 전에 프로필, 대표 케이스 2개, 예상 호출 범위를 다시 확인한다.
+2026-07-17에 A 프로필 `TC-01`, `TC-02`를 승인 후 실행했다. OpenAI 생성 파이프라인은 완료됐으나 Anthropic 인증 오류로 독립 평가는 미평가됐다. 상세 결과는 `QA_REPORT_AUTOMATION.md`를 따른다.
 
 ## 6. 다음 작업 우선순위
 
 상세 기준은 `REMAINING_WORK_PLAN.md`를 따른다.
 
 1. QA 실행 안전성 보완: 구현 및 비AI 검증 완료
-2. QA 보고서 자동 생성 통일
+2. QA 보고서 자동 생성 통일: 구현 및 비AI 검증 완료
 3. 통합 결과 보고서 대시보드 완성
 4. 챗봇 대시보드 세부 개선
 5. VOC·A~D 모니터링 화면 완성
-6. 사용자 승인 후 A 프로필 대표 2건 실제 AI 검증
+6. A 프로필 대표 2건 독립 평가 재검증: Anthropic 키 정상화 후 진행
 
 AWS 또는 외부 공개 배포 전에는 QA 권한, 인증, 부하 제한, HTTPS, 감사 로그 정책을 다시 검토한다.

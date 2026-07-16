@@ -38,7 +38,7 @@ def test_generate_live_report(tmp_path, monkeypatch):
     monkeypatch.setattr(live_report, "CONVERSATIONS_LOG", log_dir / "conversations.jsonl")
     monkeypatch.setattr(live_report, "LIVE_EVAL_LOG", log_dir / "live_evaluations.jsonl")
     monkeypatch.setattr(live_report, "REPORTS_DIR", tmp_path / "reports")
-    monkeypatch.setattr(live_report, "HISTORY_DIR", tmp_path / "reports" / "history")
+    monkeypatch.setattr(live_report, "ASSETS_DIR", tmp_path / "reports" / "assets")
 
     summary = live_report.generate_live_report(timestamp="test_run")
 
@@ -52,9 +52,44 @@ def test_generate_live_report(tmp_path, monkeypatch):
     md = latest_md.read_text(encoding="utf-8")
     assert "실시간 대화 품질 리포트" in md
     assert "FAIL" in md and "미채점" in md
+    assert "한눈에 보는 품질 현황" in md
+    assert "품질·판정·응답시간 그래프" in md
+    assert "<details>" in md and "최근 채팅·채점 목록 열기" in md
+    assert "assets/decision_distribution.png" in md
 
     csv_text = latest_csv.read_text(encoding="utf-8-sig")
     assert "req1" in csv_text and "req2" in csv_text
+    for chart_name in (
+        "decision_distribution.png",
+        "quality_axis_average.png",
+        "response_latency_trend.png",
+    ):
+        chart = tmp_path / "reports" / "assets" / chart_name
+        assert chart.exists()
+        assert chart.read_bytes().startswith(b"\x89PNG")
+
+    # 자동 갱신은 원본 로그만 누적하고 보고서 이력 사본은 매번 만들지 않는다.
+    assert not (tmp_path / "reports" / "history").exists()
+
+
+def test_model_stats_keeps_na_separate():
+    import pandas as pd
+
+    df = pd.DataFrame([
+        {"overall_decision": "PASS", "total_score": 25, **{column: 5 for column in live_report.SCORE_COLS_MD}},
+        {"overall_decision": "FAIL", "total_score": 5, **{column: 1 for column in live_report.SCORE_COLS_MD}},
+        {"overall_decision": "N/A", "total_score": 0, **{column: 0 for column in live_report.SCORE_COLS_MD}},
+        {"overall_decision": "미채점", "total_score": None, **{column: None for column in live_report.SCORE_COLS_MD}},
+    ])
+
+    stats = live_report._model_stats(df)
+
+    assert stats["pass"] == 1
+    assert stats["fail"] == 1
+    assert stats["na"] == 1
+    assert stats["not_scored"] == 1
+    assert stats["pass_rate"] == 50.0
+    assert stats["avg_total"] == 15.0
 
 
 def test_generate_live_report_without_logs(tmp_path, monkeypatch):

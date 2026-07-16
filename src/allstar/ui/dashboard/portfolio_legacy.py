@@ -423,17 +423,25 @@ def _generate_live_report_and_rerun() -> None:
         st.rerun()  # 버튼 비활성화 상태/집계 기간 등을 방금 생성된 최신 상태로 즉시 반영
 
 
+def render_live_report_markdown() -> None:
+    """보고서의 상대 PNG 경로를 FastAPI 정적 보고서 주소로 바꿔 Streamlit에서 함께 표시한다."""
+    markdown = LIVE_REPORT_MD_PATH.read_text(encoding="utf-8")
+    asset_base = f"{API_BASE_URL.rstrip('/')}/reports/ai_agent/live/assets/"
+    markdown = markdown.replace("](assets/", f"]({asset_base}")
+    st.markdown(markdown, unsafe_allow_html=True)
+
+
 def live_report_regenerate_banner(stale: bool, key_suffix: str) -> None:
-    """리포트가 최신이 아닐 때, 재생성 버튼을 안내 문구 왼쪽에 나란히 보여준다."""
+    """자동 채점·보고서 갱신 중인 상태와 수동 재시도 버튼을 함께 보여준다."""
     if not stale:
         return
     col_btn, col_msg = st.columns([1, 4])
     with col_btn:
         generate_clicked = st.button(
-            "📄 실시간 대화 리포트 생성", type="primary", key=f"generate_live_report_btn_{key_suffix}",
+            "📄 지금 다시 갱신", type="primary", key=f"generate_live_report_btn_{key_suffix}",
         )
     with col_msg:
-        st.warning("실시간 리포트 생성을 해야 최신 데이터로 갱신됩니다.")
+        st.info("새 대화의 백그라운드 채점과 실시간 보고서 자동 갱신이 진행 중일 수 있습니다.")
     if generate_clicked:
         _generate_live_report_and_rerun()
 
@@ -591,10 +599,9 @@ with top_tab_live:
             if st.button("🔄 새로고침", key="refresh_live_tab"):
                 load_jsonl.clear()  # 이 탭이 쓰는 대화/채점 로그 캐시만 비운다 (배치 탭 캐시는 그대로)
         with btn_col2:
-            # 배치 리포트와 별개로, 대화 로그+실시간 채점만 집계한 리포트를 생성 (API 호출 없음, 즉시 완료)
-            # 이미 최신 상태면 재생성할 게 없으므로 버튼을 비활성화한다.
+            # 보고서는 채점 완료 후 자동 갱신한다. 이 버튼은 파일 재생성이 필요한 경우의 보조 수단이다.
             generate_clicked = st.button(
-                "📄 실시간 대화 리포트 생성", type="primary", key="generate_live_report_btn",
+                "📄 실시간 보고서 다시 갱신", type="primary", key="generate_live_report_btn",
                 disabled=not report_is_stale,
             )
         with btn_col3:
@@ -979,9 +986,9 @@ with top_tab_report:
         # 리포트 본문에 이미 "집계 기간"이 들어있어 캡션은 중복 표시하지 않고, 재생성 배너만 조건부로 붙인다.
         live_report_regenerate_banner(report_is_stale, "report")
         if LIVE_REPORT_MD_PATH.exists():
-            st.markdown(LIVE_REPORT_MD_PATH.read_text(encoding="utf-8"), unsafe_allow_html=True)
+            render_live_report_markdown()
         else:
-            st.info("아직 실시간 대화 리포트가 없습니다. '🗒️ 대화 로그' 탭에서 '실시간 대화 리포트 생성' 버튼을 누르세요.")
+            st.info("아직 실시간 대화 리포트가 없습니다. 챗봇 채팅과 백그라운드 채점이 완료되면 자동 생성됩니다.")
 
     with report_validation_tab:
         if VALIDATION_REPORT_MD_PATH.exists():

@@ -15,10 +15,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import PROJECT_ROOT, SRC_ROOT, VOC_LOG_ROOT, VOC_REPORT_ROOT
+from allstar.voc.evaluation.report_charts import generate_cross_validation_charts
 
 ROOT = Path(__file__).resolve().parent
 REPORT_ROOT = VOC_REPORT_ROOT / "cross_validation"
+PROFILE_REPORT_ROOT = VOC_REPORT_ROOT / "testcase"
 LOG_ROOT = VOC_LOG_ROOT / "cross_validation"
 AGENT_MODULES = (
     "interpreter", "retriever", "summarizer", "evaluator", "critic", "improver"
@@ -50,7 +53,7 @@ def experiment_config(experiment: str) -> dict[str, str]:
 
 
 def experiment_output_dir(experiment: str) -> Path:
-    return REPORT_ROOT / experiment.lower()
+    return PROFILE_REPORT_ROOT / experiment.lower()
 
 
 def build_locked_environment(experiment: str) -> dict[str, str]:
@@ -105,6 +108,13 @@ def _markdown(value) -> str:
     return str(value or "-").replace("|", "\\|").replace("\r", " ").replace("\n", " ")
 
 
+def _project_path(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(PROJECT_ROOT.resolve())).replace("\\", "/")
+    except ValueError:
+        return str(path.resolve())
+
+
 def _case_status(row: dict) -> str:
     if _number(row.get("total")) is not None:
         return "채점 완료"
@@ -126,7 +136,7 @@ def _display_score(row: dict | None) -> str:
 
 
 def _update_comparison_report() -> None:
-    """A~D 최신 CSV를 20개 케이스 단위로 합치고 그래프용 CSV도 만든다."""
+    """A~D 프로필별 최신 정식 결과를 합쳐 종합 비교 보고서를 갱신한다."""
     REPORT_ROOT.mkdir(parents=True, exist_ok=True)
     cases_path = ROOT / "test_cases.json"
     cases = json.loads(cases_path.read_text(encoding="utf-8"))["cases"]
@@ -146,15 +156,35 @@ def _update_comparison_report() -> None:
             if row.get("case_id"):
                 by_case.setdefault(row["case_id"], {})[key] = row
 
+    available_profiles = [key for key, rows in experiment_rows.items() if rows]
+    if len(available_profiles) < 2:
+        return
+    active_cases = [case for case in cases if by_case.get(case["case_id"])]
+    active_case_ids = [case["case_id"] for case in active_cases]
+    scope = ", ".join(active_case_ids) or "결과 없음"
+
     lines = [
         "# 교차검증 종합 비교보고서", "",
+        "> 이 문서는 A~D 프로필별 최신 정식 품질 보고서를 비교한 종합 결과입니다. 각 프로필을 다시 실행하면 최신 데이터로 자동 갱신됩니다.", "",
         f"- 최근 갱신: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        "- 비교 단위: TC-01~TC-20",
-        "- 정식 점수 비교: TC-01~16",
-        "- 예외처리 확인: TC-17~18",
-        "- pytest 장애 검증 전용: TC-19~20",
-        "- 수행시간 집계: TC-01~18 실제 실행(live), pytest 전용 시간 제외", "",
-        "## 1. 실험군별 핵심 지표", "",
+        f"- 비교 프로필: {', '.join(available_profiles)}",
+        f"- 비교 테스트케이스: {scope}",
+        "- 각 프로필의 가장 최근 정식 보고서 데이터만 사용", "",
+        "## 1. A~D 프로필 정의", "",
+        "| 프로필 | 설명 | 답변 생성 | 독립 평가(Judge) | 비교 포함 |",
+        "|---|---|---|---|---|",
+    ]
+    for profile in public_profiles():
+        generation = profile["generation"]
+        judge = profile["judge"]
+        included = "포함" if profile["profile_id"] in available_profiles else "미실행"
+        lines.append(
+            f"| {profile['profile_id']} | {profile['summary']} | "
+            f"{generation['provider']} / `{generation['model']}` / 추론 {generation['reasoning']} | "
+            f"{judge['provider']} / `{judge['model']}` / 추론 {judge['reasoning']} | {included} |"
+        )
+    lines += [
+        "", "## 2. 실험군별 핵심 지표", "",
         "| 실험군 | 생성 모델 | 평가 모델 | 처리 | 정상 채점 | N/A | PASS(예외) | 평균 | 중앙값 | 중앙 수행시간 | 목적 |",
         "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
@@ -176,12 +206,18 @@ def _update_comparison_report() -> None:
             f"{median_time} | {config['purpose']} |"
         )
 
-    lines += ["", "## 2. TC-01~20 실험군 교차 비교", ""]
+    chart_paths = generate_cross_validation_charts(experiment_rows, REPORT_ROOT / "assets")
+    lines += [
+        "", "### 프로필별 종합 그래프", "",
+        f"![A~D 평균 품질 점수](assets/{chart_paths['scores'].name})", "",
+        f"![A~D 평균 처리시간](assets/{chart_paths['durations'].name})", "",
+        "## 3. 테스트케이스별 실험군 교차 비교", "",
+    ]
     lines += [
         "| 케이스 | 유형 | 질문 | A | B | C | D | 채점 최고-최저 차이 |",
         "|---|---|---|---:|---:|---:|---:|---:|",
     ]
-    for case in cases:
+    for case in active_cases:
         cid = case["case_id"]
         records = by_case.get(cid, {})
         numeric = [
@@ -195,7 +231,7 @@ def _update_comparison_report() -> None:
             + f" | {gap} |"
         )
 
-    lines += ["", "## 3. 평가 항목별 평균 비교", ""]
+    lines += ["", "## 4. 평가 항목별 평균 비교", ""]
     lines += [
         "| 평가 항목 | A | B | C | D |",
         "|---|---:|---:|---:|---:|",
@@ -210,7 +246,7 @@ def _update_comparison_report() -> None:
             values.append(f"{statistics.mean(criterion_scores):.2f}" if criterion_scores else "-")
         lines.append(f"| {criterion} | " + " | ".join(values) + " |")
 
-    lines += ["", "## 4. 수행시간 비교", ""]
+    lines += ["", "## 5. 수행시간 비교", ""]
     lines += [
         "| 실험군 | 파이프라인 평균 | Judge 평균 | 전체 평균 | 전체 중앙값 | 최단 | 최장 |",
         "|---|---:|---:|---:|---:|---:|---:|",
@@ -229,7 +265,7 @@ def _update_comparison_report() -> None:
             f"{fmt(min(total) if total else None)} | {fmt(max(total) if total else None)} |"
         )
 
-    lines += ["", "## 5. 실험군별 20개 케이스 상세", ""]
+    lines += ["", "## 6. 실험군별 최신 케이스 상세", ""]
     for key, config in EXPERIMENTS.items():
         rows = experiment_rows[key]
         lines += [
@@ -260,7 +296,7 @@ def _update_comparison_report() -> None:
             ]
 
     lines += [
-        "## 6. 실행 규칙과 그래프 활용", "",
+        "## 7. 실행 규칙과 그래프 활용", "",
         "- 각 실험군은 지정된 생성·평가 제공자를 고정한다.",
         "- API 호출은 한 번만 수행하며 재시도하거나 다른 제공자로 대체하지 않는다.",
         "- 생성 또는 평가 API가 실패한 케이스는 N/A로 기록하고 다음 케이스를 계속한다.",
@@ -301,9 +337,44 @@ def _update_comparison_report() -> None:
                     "rationale": row.get("rationale", ""),
                 })
 
-    (REPORT_ROOT / "교차검증_종합비교보고서.md").write_text(
-        "\n".join(lines), encoding="utf-8"
-    )
+    report_path = REPORT_ROOT / "교차검증_종합비교보고서.md"
+    json_path = REPORT_ROOT / "교차검증_그래프데이터.json"
+    report_path.write_text("\n".join(lines), encoding="utf-8")
+    json_path.write_text(json.dumps({
+        "schema_version": 1,
+        "report_type": "voc_cross_validation",
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "profiles": available_profiles,
+        "cases": active_case_ids,
+        "results": experiment_rows,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    source_manifests = []
+    source_logs = []
+    for key in available_profiles:
+        manifest_path = experiment_output_dir(key) / "report_manifest.json"
+        if not manifest_path.exists():
+            continue
+        source_manifests.append(_project_path(manifest_path))
+        try:
+            source_logs.extend(json.loads(manifest_path.read_text(encoding="utf-8")).get("sources", []))
+        except (OSError, json.JSONDecodeError):
+            pass
+    (REPORT_ROOT / "report_manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "report_type": "voc_cross_validation",
+        "profiles": available_profiles,
+        "cases": active_case_ids,
+        "sources": source_manifests + source_logs,
+        "outputs": [
+            _project_path(report_path),
+            _project_path(graph_path),
+            _project_path(json_path),
+            *[
+                _project_path(path)
+                for path in sorted((REPORT_ROOT / "assets").glob("*.png"))
+            ],
+        ],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 async def run_experiment(experiment: str, case_id: str | None = None) -> int:

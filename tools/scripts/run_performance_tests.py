@@ -2,8 +2,10 @@ import os
 import sys
 import json
 import datetime
+import shutil
 import subprocess
 import statistics
+import time
 from pathlib import Path
 
 # Windows 터미널에서 K6의 특수문자 로고 출력 시 cp949 인코딩 에러 방지
@@ -12,8 +14,12 @@ if sys.stdout is not None and sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+PERFORMANCE_PHASES = (("phase1", 1), ("phase2", 10), ("phase3", 25))
+STABILIZATION_SECONDS = 5
+
+
 def run_k6_performance(k6_bin, script_path, target_host, results_dir, on_line=None):
-    """k6로 API 지연시간 계단식 부하 테스트를 실행하고 raw JSON 결과 파일 경로(Path)를 반환한다.
+    """k6를 1명, 10명, 25명 순서로 독립 실행하고 통합 raw JSON 경로를 반환한다.
 
     target_host: k6 스크립트(api_latency_test.js)가 읽는 TARGET_IP 환경변수 값 (예: "192.168.0.22:8000").
     on_line: 실시간 출력 한 줄마다 호출되는 콜백(없으면 stdout에 그대로 출력) — GUI 콘솔에 스트리밍할 때 사용.
@@ -31,20 +37,46 @@ def run_k6_performance(k6_bin, script_path, target_host, results_dir, on_line=No
     if raw_json_path.exists():
         raw_json_path.unlink()
 
-    emit("▶ K6 API 지연시간 테스트 실행 중...\n")
-    cmd = [str(k6_bin), "run", f"--out=json={raw_json_path}", str(script_path)]
-
-    env = os.environ.copy()
-    env["TARGET_IP"] = target_host
-
+    phase_paths = []
     creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    process = subprocess.Popen(
-        cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-        text=True, encoding='utf-8', errors='replace', creationflags=creationflags,
-    )
-    for line in process.stdout:
-        emit(line)
-    process.wait()
+
+    emit("▶ K6 API 지연시간 시험을 단계별 독립 실행합니다: 1명 → 10명 → 25명\n")
+    for index, (phase_id, vus) in enumerate(PERFORMANCE_PHASES):
+        phase_path = results_dir / f"raw_latency_{phase_id}.json"
+        if phase_path.exists():
+            phase_path.unlink()
+        phase_paths.append(phase_path)
+
+        emit(f"\n▶ {index + 1}단계 시작: 가상 사용자 {vus}명 동시 요청\n")
+        cmd = [str(k6_bin), "run", f"--out=json={phase_path}", str(script_path)]
+        env = os.environ.copy()
+        env.update({
+            "TARGET_IP": target_host,
+            "PHASE_ID": phase_id,
+            "PHASE_VUS": str(vus),
+        })
+        process = subprocess.Popen(
+            cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding='utf-8', errors='replace', creationflags=creationflags,
+        )
+        for line in process.stdout:
+            emit(line)
+        exit_code = process.wait()
+        emit(f"▶ {index + 1}단계 종료: 가상 사용자 {vus}명 / 종료 코드 {exit_code}\n")
+
+        if index < len(PERFORMANCE_PHASES) - 1:
+            emit(f"▶ 다음 단계 전 서버 안정화 대기: {STABILIZATION_SECONDS}초\n")
+            time.sleep(STABILIZATION_SECONDS)
+
+    with raw_json_path.open("w", encoding="utf-8") as merged:
+        for phase_path in phase_paths:
+            if not phase_path.exists():
+                continue
+            with phase_path.open("r", encoding="utf-8") as phase_file:
+                for line in phase_file:
+                    merged.write(line)
+
+    emit("▶ 1명·10명·25명 독립 단계 결과 통합 완료\n")
 
     return raw_json_path
 
@@ -70,7 +102,7 @@ def parse_and_generate_report(raw_json_path, report_dir, on_line=None):
     checks_passed = 0
     llm_latencies = []
 
-    raw_points = []
+    phase_durations = {phase_id: [] for phase_id, _vus in PERFORMANCE_PHASES}
 
     # K6 Raw JSON Parsing
     for line in lines:
@@ -82,12 +114,12 @@ def parse_and_generate_report(raw_json_path, report_dir, on_line=None):
                 val = data["data"]["value"]
                 tags = data["data"].get("tags", {})
                 tc_id = tags.get("tc_id", "Unknown")
-                time_str = data["data"].get("time")
+                phase_id = tags.get("phase_id")
 
                 if metric == "http_req_duration":
                     req_durations.append(val)
-                    if time_str:
-                        raw_points.append({"time": time_str, "val": val})
+                    if phase_id in phase_durations:
+                        phase_durations[phase_id].append(val)
                     if tc_id not in tc_durations:
                         tc_durations[tc_id] = []
                     tc_durations[tc_id].append(val)
@@ -139,34 +171,12 @@ def parse_and_generate_report(raw_json_path, report_dir, on_line=None):
     is_pass = p95_all < 5000 and error_rate < 1.0
     pass_label = "🟢 PASS" if is_pass else "🔴 FAIL"
 
-    # Phase Separation
-    def parse_k6_time(t_str):
-        return datetime.datetime.fromisoformat(t_str.replace("Z", "+00:00"))
-
-    t0 = None
-    for p in raw_points:
-        t = parse_k6_time(p["time"])
-        if t0 is None or t < t0:
-            t0 = t
-
-    phase1_durs = []
-    phase2_durs = []
-    phase3_durs = []
-
-    if t0:
-        for p in raw_points:
-            t = parse_k6_time(p["time"])
-            delta_s = (t - t0).total_seconds()
-            if delta_s < 20:
-                phase1_durs.append(p["val"])
-            elif delta_s < 40:
-                phase2_durs.append(p["val"])
-            else:
-                phase3_durs.append(p["val"])
-
-    p1_avg = statistics.mean(phase1_durs) if phase1_durs else 0
-    p2_avg = statistics.mean(phase2_durs) if phase2_durs else 0
-    p3_avg = statistics.mean(phase3_durs) if phase3_durs else 0
+    p1_avg = statistics.mean(phase_durations["phase1"]) if phase_durations["phase1"] else 0
+    p2_avg = statistics.mean(phase_durations["phase2"]) if phase_durations["phase2"] else 0
+    p3_avg = statistics.mean(phase_durations["phase3"]) if phase_durations["phase3"] else 0
+    p1_count = len(phase_durations["phase1"])
+    p2_count = len(phase_durations["phase2"])
+    p3_count = len(phase_durations["phase3"])
 
     today = datetime.datetime.now()
     timestamp = today.strftime("%Y-%m-%d %H:%M:%S")
@@ -174,7 +184,8 @@ def parse_and_generate_report(raw_json_path, report_dir, on_line=None):
     md_content = f"""# API 종합 성능 및 신뢰성 분석 보고서
 
 **작성일시**: {timestamp}
-**테스트 목적**: LLM API(`/chat`)의 계단식 부하 상황(1➔10➔25 VUs)에서의 성능 및 예외 처리 신뢰성 검증
+**테스트 목적**: LLM API(`/chat`)를 1명·10명·25명 순서로 단계별 독립 실행하여 성능 및 예외 처리 신뢰성 검증
+**실행 방식**: 각 단계의 모든 요청이 종료된 뒤 5초간 서버를 안정화하고 다음 단계를 시작
 
 ## 1. 핵심 요약 (Executive Summary)
 * **최종 결과**: **{pass_label}**
@@ -186,10 +197,10 @@ def parse_and_generate_report(raw_json_path, report_dir, on_line=None):
 
 ### Q1. 부하에 따른 지연 증가율 (Scalability)
 - 전체 평균 지연시간은 **{avg_all:.1f} ms**입니다.
-- 계단식 부하량 증가에 따른 구간별 평균 지연시간 비교:
-  - **Phase 1 (1명 동시접속)**: {p1_avg:.1f} ms
-  - **Phase 2 (10명 동시접속)**: {p2_avg:.1f} ms
-  - **Phase 3 (25명 동시접속)**: {p3_avg:.1f} ms
+- 서로 겹치지 않는 독립 단계별 평균 지연시간 비교:
+  - **1단계 (1명 동시접속)**: {p1_avg:.1f} ms / 완료 요청 {p1_count}건
+  - **2단계 (10명 동시접속)**: {p2_avg:.1f} ms / 완료 요청 {p2_count}건
+  - **3단계 (25명 동시접속)**: {p3_avg:.1f} ms / 완료 요청 {p3_count}건
 
 ### Q2. 임계치 달성 여부 (Latency Threshold)
 - 전체 P95 Latency는 **{p95_all:.1f} ms**로 측정되어, 5초(5000ms) 목표치를 {'**만족**' if p95_all < 5000 else '**초과**'}했습니다.
@@ -242,7 +253,10 @@ if __name__ == "__main__":
     # 서버(개발자) 컴퓨터에서 프로젝트 전체를 두고 직접 실행할 때의 기본 경로/대상.
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
     k6_exe = PROJECT_ROOT / "RUN" / "k6.exe"
-    k6_bin = str(k6_exe) if k6_exe.exists() else "k6"
+    k6_bin = str(k6_exe) if k6_exe.exists() else shutil.which("k6")
+    if not k6_bin:
+        print("[오류] K6 실행 파일을 찾지 못했습니다. RUN/k6.exe를 두거나 K6를 시스템에 설치하세요.")
+        raise SystemExit(2)
     script_path = PROJECT_ROOT / "ops" / "performance" / "api_latency_test.js"
     results_dir = PROJECT_ROOT / "ops" / "performance" / "results"
     report_dir = PROJECT_ROOT / "_OUTPUT" / "reports" / "performance"

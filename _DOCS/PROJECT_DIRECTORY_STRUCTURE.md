@@ -85,15 +85,21 @@ _Total/
 │  │  │  │  └─ judgments/
 │  │  │  ├─ testcase/
 │  │  │  └─ cross_validation/
+│  │  ├─ qa/
+│  │  │  ├─ runs/
+│  │  │  └─ k6/
 │  │  └─ services/
 │  └─ reports/
+│     ├─ qa/
+│     │  └─ latest/
 │     ├─ ai_agent/
 │     │  ├─ batch/
-│     │  └─ live/
+│     │  └─ live/                      최신 실시간 Markdown·CSV와 데이터 기반 PNG
+│     │     └─ assets/
 │     ├─ voc/
 │     │  ├─ live/
-│     │  ├─ testcase/
-│     │  └─ cross_validation/
+│     │  ├─ testcase/                  A~D 프로필별 최신 정식 보고서·데이터·그래프
+│     │  └─ cross_validation/          2개 이상 프로필의 최신 종합 비교
 │     ├─ defects/
 │     ├─ performance/
 │     └─ manifests/
@@ -117,7 +123,7 @@ _Total/
 | `tests/` | 자동 테스트 코드 | 실제 운영 로그와 리포트 |
 | `RUN/` | 더블클릭 진입용 `.bat`, `.vbs` | 장문의 Python 구현 코드 |
 | `_OUTPUT/logs/` | 대화·채점·테스트·서비스 원본 기록 | 사람이 읽는 최종 보고서 |
-| `_OUTPUT/reports/` | CSV·JSON·Markdown·Word·PPT 결과 | Python 실행 코드 |
+| `_OUTPUT/reports/` | CSV·JSON·Markdown·PNG 그래프·Word·PPT 결과 | Python 실행 코드 |
 | `_DOCS/` | 설계, 기준, 사용법, 구현 상태 | 자동 생성 리포트 사본 |
 
 ## 5. 현재 경로에서 목표 경로로의 변경표

@@ -105,6 +105,7 @@ def test_comparison_report_contains_case_detail_and_graph_csv(tmp_path, monkeypa
     from allstar.voc.evaluation import cross_validation
 
     monkeypatch.setattr(cross_validation, "REPORT_ROOT", tmp_path)
+    monkeypatch.setattr(cross_validation, "PROFILE_REPORT_ROOT", tmp_path)
     fields = [
         "case_id", "question", "total", "verdict", "immediate_hold",
         "pipeline_seconds", "judge_seconds", "total_seconds", "judge_model",
@@ -130,19 +131,40 @@ def test_comparison_report_contains_case_detail_and_graph_csv(tmp_path, monkeypa
         writer = csv.DictWriter(file, fieldnames=fields)
         writer.writeheader()
         writer.writerow(sample)
+    b_dir = tmp_path / "b"
+    b_dir.mkdir()
+    with (b_dir / "llm_judge_result.csv").open("w", encoding="utf-8-sig", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fields)
+        writer.writeheader()
+        writer.writerow({**sample, "total": "79", "judge_model": "openai:test"})
 
     cross_validation._update_comparison_report()
 
     report = (tmp_path / "교차검증_종합비교보고서.md").read_text(encoding="utf-8")
-    assert "TC-01~20 실험군 교차 비교" in report
+    assert "테스트케이스별 실험군 교차 비교" in report
     assert "평가 항목별 평균 비교" in report
     assert "실험군 A 케이스별 채점·실패 근거" in report
-    assert "TC-20" in report
+    assert "비교 테스트케이스: TC-01" in report
+    assert "TC-20" not in report
     with (tmp_path / "교차검증_그래프데이터.csv").open(
         encoding="utf-8-sig", newline=""
     ) as file:
         graph_rows = list(csv.DictReader(file))
-    assert len(graph_rows) == 1
+    assert len(graph_rows) == 2
     assert graph_rows[0]["experiment"] == "A"
     assert graph_rows[0]["case_id"] == "TC-01"
     assert graph_rows[0]["total"] == "82"
+
+
+def test_comparison_report_requires_two_profiles(tmp_path, monkeypatch):
+    from allstar.voc.evaluation import cross_validation
+
+    monkeypatch.setattr(cross_validation, "REPORT_ROOT", tmp_path / "cross")
+    monkeypatch.setattr(cross_validation, "PROFILE_REPORT_ROOT", tmp_path / "profiles")
+    a_dir = tmp_path / "profiles" / "a"
+    a_dir.mkdir(parents=True)
+    (a_dir / "llm_judge_result.csv").write_text("case_id,total\nTC-01,80\n", encoding="utf-8-sig")
+
+    cross_validation._update_comparison_report()
+
+    assert not (tmp_path / "cross" / "교차검증_종합비교보고서.md").exists()

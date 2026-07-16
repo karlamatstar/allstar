@@ -7,12 +7,15 @@ import argparse
 import csv
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import VOC_LOG_ROOT
+from allstar.voc.evaluation.report_charts import generate_profile_charts
 from allstar.voc.evaluation.judge_prompt import build_judge_prompt, decide_verdict, parse_judge_response
 from allstar.voc.evaluation.runtime_support import REPORTS_DIR, all_agents_running, load_json, pb2_generated
 
@@ -72,6 +75,7 @@ class JudgeRunLog:
             "case_results": [],
             "outputs": {
                 "csv": str(ACTIVE_REPORTS_DIR / "llm_judge_result.csv"),
+                "json": str(ACTIVE_REPORTS_DIR / "llm_judge_result.json"),
                 "markdown": str(ACTIVE_REPORTS_DIR / "quality_score_report.md"),
             },
             "error": None,
@@ -97,22 +101,9 @@ class JudgeRunLog:
             "na": len(na_rows),
             "not_scored": len(target_rows) - len(scored) - len(na_rows),
         })
-        self.data["case_results"] = [
-            {
-                "case_id": row.get("case_id"),
-                "mode": row.get("mode"),
-                "judge_model": row.get("judge_model"),
-                "total": row.get("total"),
-                "verdict": row.get("verdict"),
-                "immediate_hold": row.get("immediate_hold"),
-                "api_attempts": row.get("api_attempts"),
-                "pipeline_seconds": row.get("pipeline_seconds"),
-                "judge_seconds": row.get("judge_seconds"),
-                "total_seconds": row.get("total_seconds"),
-                "rationale": row.get("rationale"),
-            }
-            for row in rows
-        ]
+        # 정식 Markdown·Word·PPT를 로그만으로 다시 만들 수 있도록 질문,
+        # 항목별 점수, 채점 근거, 실제 파이프라인 출력까지 전체 행을 보존한다.
+        self.data["case_results"] = [dict(row) for row in rows]
         self._write()
 
     def finish(self, status: str, error: str | None = None) -> None:
@@ -450,14 +441,32 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
     return 0
 
 
-async def main(case_id: str | None = None, output_dir: str | None = None) -> int:
+def select_cases(cases: list[dict], selected_ids: list[str] | tuple[str, ...] | None) -> list[dict]:
+    """정의 순서를 유지하면서 요청된 테스트케이스만 선택한다."""
+    ids = list(selected_ids or ())
+    if not ids:
+        return cases
+    selected = set(ids)
+    filtered = [case for case in cases if case.get("case_id") in selected]
+    found = {case.get("case_id") for case in filtered}
+    missing = [selected_id for selected_id in ids if selected_id not in found]
+    if missing:
+        raise ValueError(f"존재하지 않는 테스트 케이스: {', '.join(missing)}")
+    return filtered
+
+
+async def main(
+    case_id: str | None = None,
+    output_dir: str | None = None,
+    case_ids: list[str] | tuple[str, ...] | None = None,
+) -> int:
     """LLM Judge 실행과 별도로 실행 상태 로그를 항상 보존한다."""
     configure_output_dir(output_dir)
     cases = load_json("test_cases.json")["cases"]
+    selected_ids = list(case_ids or ())
     if case_id:
-        cases = [case for case in cases if case.get("case_id") == case_id]
-        if not cases:
-            raise ValueError(f"존재하지 않는 테스트 케이스: {case_id}")
+        selected_ids.append(case_id)
+    cases = select_cases(cases, selected_ids)
     run_log = JudgeRunLog(cases)
     try:
         return await _run_judge(cases, run_log)
@@ -477,11 +486,16 @@ def _format_case_detail(row: dict, criteria_names: list[str], max_by_name: dict[
     pipeline_seconds = row.get("pipeline_seconds")
     judge_seconds = row.get("judge_seconds")
     total_seconds = row.get("total_seconds")
+    def seconds(value) -> str:
+        try:
+            return f"{float(value):.2f}"
+        except (TypeError, ValueError):
+            return "-"
     lines.append(
         "- 수행시간: "
-        f"파이프라인 {pipeline_seconds if pipeline_seconds is not None else '-'}초 · "
-        f"Judge {judge_seconds if judge_seconds is not None else '-'}초 · "
-        f"전체 {total_seconds if total_seconds is not None else '-'}초"
+        f"파이프라인 {seconds(pipeline_seconds)}초 · "
+        f"Judge {seconds(judge_seconds)}초 · "
+        f"전체 {seconds(total_seconds)}초"
     )
     if row.get("immediate_hold") is True:
         lines.append("- ⚠ 즉시 보류 조건에 해당함")
@@ -534,6 +548,7 @@ def _write_reports(rows, criteria_names, rubric):
     reports_dir.mkdir(parents=True, exist_ok=True)
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     csv_path = reports_dir / "llm_judge_result.csv"
+    json_path = reports_dir / "llm_judge_result.json"
     fieldnames = [
         "experiment", "generation_provider", "generation_model",
         "case_id", "question", "mode", "judge_model", *criteria_names,
@@ -548,6 +563,24 @@ def _write_reports(rows, criteria_names, rubric):
             writer.writerows(rows)
 
     _safe_write(csv_path, _write_csv)
+
+    profile_snapshot: dict = {}
+    try:
+        profile_snapshot = json.loads(os.environ.get("ALLSTAR_VOC_PROFILE_SNAPSHOT", "{}"))
+    except json.JSONDecodeError:
+        profile_snapshot = {}
+    report_data = {
+        "schema_version": 1,
+        "report_type": "voc_profile_quality",
+        "run_id": os.environ.get("VOC_REPORT_RUN_ID"),
+        "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "profile": profile_snapshot,
+        "cases": rows,
+    }
+    _safe_write(
+        json_path,
+        lambda: json_path.write_text(json.dumps(report_data, ensure_ascii=False, indent=2), encoding="utf-8"),
+    )
 
     scored = [row for row in rows if isinstance(row["total"], (int, float))]
     api_failed = [row for row in rows if row["total"] == "N/A"]
@@ -565,23 +598,64 @@ def _write_reports(rows, criteria_names, rubric):
     else:
         decision = decide_verdict(average, False, rubric)
 
+    selected_profile = str(profile_snapshot.get("profile_id") or os.environ.get("CROSS_VALIDATION_EXPERIMENT") or "")
+    report_title = (
+        f"# VOC 에이전트 교차 테스트 ({selected_profile}) 품질 점수 보고서"
+        if selected_profile
+        else "# VOC 품질 점수 보고서 (Quality Score Report)"
+    )
     lines = [
-        "# 품질 점수 보고서 (Quality Score Report)", "",
+        report_title, "",
+        "> 이 문서는 해당 프로필의 최신 정식 품질 결과 보고서입니다. 동일 프로필을 다시 실행하면 최신 결과로 갱신되며, 실행별 원문 로그는 별도로 누적 보존됩니다.", "",
+        "## 1. 보고서 개요", "",
         f"- 실행 일시: {now}",
+        f"- 실행 식별자: {os.environ.get('VOC_REPORT_RUN_ID') or '-'}",
         f"- 실험군: {os.environ.get('CROSS_VALIDATION_EXPERIMENT') or '일반 실행'}",
-        f"- 생성 모델: {os.environ.get('GENERATION_PROVIDER') or '기존 혼합 구성'}",
-        f"- 평가 모델: {os.environ.get('JUDGE_PROVIDER') or '환경설정 우선순위'}",
+        f"- 대상 테스트케이스: {', '.join(str(row.get('case_id')) for row in rows)}",
         f"- 전체 케이스: {len(rows)}",
         f"- 정상 평가: {len(scored)}",
         f"- PASS(예외처리, 평균 제외): {len(pass_no_data)}",
         f"- API 실패로 미평가(N/A): {len(api_failed)}", "",
+        "## 2. A~D 프로필 정의", "",
+        "| 프로필 | 설명 | 답변 생성 | 독립 평가(Judge) | 선택 |",
+        "|---|---|---|---|---|",
+    ]
+    for profile in public_profiles():
+        generation = profile["generation"]
+        judge = profile["judge"]
+        selected = "이번 실행" if profile["profile_id"] == selected_profile else "-"
+        lines.append(
+            f"| {profile['profile_id']} | {profile['summary']} | "
+            f"{generation['provider']} / `{generation['model']}` / 추론 {generation['reasoning']} | "
+            f"{judge['provider']} / `{judge['model']}` / 추론 {judge['reasoning']} | {selected} |"
+        )
+    generation = profile_snapshot.get("generation", {})
+    judge = profile_snapshot.get("judge", {})
+    lines += [
+        "", "## 3. 이번 실행 모델 설정", "",
+        f"- 답변 생성: {generation.get('provider') or os.environ.get('GENERATION_PROVIDER') or '-'} / "
+        f"`{generation.get('model') or '-'}` / 추론 {generation.get('reasoning') or '-'}",
+        f"- 독립 평가: {judge.get('provider') or os.environ.get('JUDGE_PROVIDER') or '-'} / "
+        f"`{judge.get('model') or '-'}` / 추론 {judge.get('reasoning') or '-'}",
+        "", "## 4. 종합 품질 결과", "",
         "| 케이스 | " + " | ".join(criteria_names) + " | 총점 | 판정 |",
         "| :--- |" + " ---: |" * len(criteria_names) + " ---: | :--- |",
     ]
     for row in rows:
-        scores = " | ".join(str(row[name]) for name in criteria_names)
+        scores = " | ".join(str(row.get(name, "N/A")) for name in criteria_names)
         lines.append(f"| {row['case_id']} | {scores} | {row['total']} | {row['verdict']} |")
     lines += ["", f"**평균 점수: {average if average is not None else '미평가'}** (PASS(예외처리) {len(pass_no_data)}건 제외)"]
+
+    max_by_name = {c["name"]: c["max_score"] for c in rubric.get("criteria", [])}
+    charts = generate_profile_charts(rows, criteria_names, max_by_name, reports_dir / "assets")
+    lines += [
+        "", "### 품질 결과 그래프", "",
+        f"![테스트케이스별 품질 점수](assets/{charts['scores'].name})", "",
+        f"![평가 항목별 달성률](assets/{charts['criteria'].name})", "",
+        "평가 항목 그래프의 C1~C9는 위 종합 품질 결과 표의 평가 항목 순서를 따릅니다.", "",
+        "### 처리시간 그래프", "",
+        f"![테스트케이스별 처리시간](assets/{charts['durations'].name})", "",
+    ]
     if pass_no_data:
         lines += ["", "## PASS(예외처리) 케이스 - 데이터 없음을 정상적으로 인지함 (평균 점수 미포함)", ""]
         lines.extend(f"- {row['case_id']}: {row['rationale']}" for row in pass_no_data)
@@ -595,15 +669,14 @@ def _write_reports(rows, criteria_names, rubric):
         lines.extend(f"- {row['case_id']}: {row['rationale']}" for row in api_failed)
 
     # ---- 케이스별 상세: 항목별 점수와 채점 근거를 그대로 남긴다 ----
-    max_by_name = {c["name"]: c["max_score"] for c in rubric.get("criteria", [])}
-    lines += ["", "---", "", "## 케이스별 상세 (항목별 점수 · 채점 근거)", ""]
+    lines += ["", "---", "", "## 5. 케이스별 상세 (항목별 점수 · 채점 근거)", ""]
     for row in rows:
         lines.append(_format_case_detail(row, criteria_names, max_by_name))
 
     # ---- 최종 배포 판정 (별도 파일로 나누지 않고 이 보고서에 합침) ----
     lines += [
         "---", "",
-        "## 최종 배포 판정", "",
+        "## 6. 최종 배포 판정", "",
         f"- 평가 케이스: {len(scored)} / {len(rows)}",
         f"- PASS(예외처리, 평균 제외): {len(pass_no_data)}",
         f"- API 실패로 미평가(N/A): {len(api_failed)}",
@@ -617,7 +690,10 @@ def _write_reports(rows, criteria_names, rubric):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="VOC 독립 LLM Judge")
-    parser.add_argument("--case-id", help="한 건만 실행할 테스트 케이스 ID (예: TC-01)")
+    parser.add_argument(
+        "--case-id", action="append",
+        help="실행할 테스트 케이스 ID. 여러 건은 옵션을 반복한다 (예: --case-id TC-01 --case-id TC-02)",
+    )
     parser.add_argument("--output-dir", help="CSV·Markdown·JSON 로그를 저장할 별도 폴더")
     args = parser.parse_args()
-    sys.exit(asyncio.run(main(case_id=args.case_id, output_dir=args.output_dir)))
+    sys.exit(asyncio.run(main(case_ids=args.case_id, output_dir=args.output_dir)))

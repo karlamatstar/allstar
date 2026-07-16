@@ -71,6 +71,24 @@ def _create_na_evaluation(reason: str) -> dict:
     }
 
 
+def _refresh_live_report_background() -> None:
+    """누적 대화·채점 로그를 바탕으로 최신 실시간 보고서를 안전하게 갱신한다."""
+    try:
+        from allstar.ai_agent.evaluation.live_report_generator import NoLiveLogsError, generate_live_report
+
+        summary = generate_live_report()
+    except NoLiveLogsError as error:
+        logger.warning(f"실시간 보고서 자동 갱신 생략: {error}")
+    except Exception as error:
+        # 보고서 오류가 채팅 답변이나 채점 로그 보존에 영향을 주지 않도록 분리한다.
+        logger.exception(f"실시간 보고서 자동 갱신 실패: {error}")
+    else:
+        logger.info(
+            "실시간 보고서 자동 갱신 완료 "
+            f"(대화 {summary['n_conversations']}건, 평가 행 {summary['n_rows']}건)"
+        )
+
+
 def _score_both_and_check_jira_background(question: str, api_answer: str, rule_answer: str, request_id: str, is_api_error: bool = False) -> None:
     api_eval = {}
     rule_eval = {}
@@ -78,7 +96,7 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
     # Score API
     if is_api_error:
         api_eval = _create_na_evaluation("에이전트 API 호출이 실패(또는 타임아웃)하여 채점할 수 없습니다.")
-        judge_evaluations_total.labels(decision="FAIL", model=MODEL_API).inc()
+        judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
         log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
     else:
         try:
@@ -92,10 +110,13 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
             log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
         except JudgeUnavailableError as error:
             api_eval = _create_na_evaluation(f"저지 에이전트 호출 실패: {error}")
-            judge_evaluations_total.labels(decision="FAIL", model=MODEL_API).inc()
+            judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
             log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
         except Exception as error:
             logger.warning(f"실시간 채점 실패(model=api): {error}")
+            api_eval = _create_na_evaluation(f"실시간 채점 처리 실패: {error}")
+            judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
+            log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
 
     # Score Rule
     try:
@@ -109,10 +130,17 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
         log_evaluation(question, rule_eval, model=MODEL_RULE, request_id=request_id)
     except JudgeUnavailableError as error:
         rule_eval = _create_na_evaluation(f"저지 에이전트 호출 실패: {error}")
-        judge_evaluations_total.labels(decision="FAIL", model=MODEL_RULE).inc()
+        judge_evaluations_total.labels(decision="N/A", model=MODEL_RULE).inc()
         log_evaluation(question, rule_eval, model=MODEL_RULE, request_id=request_id)
     except Exception as error:
         logger.warning(f"실시간 채점 실패(model=rule): {error}")
+        rule_eval = _create_na_evaluation(f"실시간 채점 처리 실패: {error}")
+        judge_evaluations_total.labels(decision="N/A", model=MODEL_RULE).inc()
+        log_evaluation(question, rule_eval, model=MODEL_RULE, request_id=request_id)
+
+    # 두 모델의 채점 로그가 모두 저장된 뒤 최신 보고서를 자동 갱신한다.
+    # 이 함수 자체가 FastAPI 백그라운드 작업이므로 사용자 답변 반환을 지연시키지 않는다.
+    _refresh_live_report_background()
 
     # Check for FAIL or REVIEW
     api_decision = api_eval.get("overall_decision", "PASS")

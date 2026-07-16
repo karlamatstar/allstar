@@ -19,6 +19,17 @@ def _run(csv_path, filters, max_items=30):
     return asyncio.run(RetrieverAgent().run(csv_path, filters, max_items))
 
 
+def test_host_default_csv_path_falls_back_to_agent_local_default(monkeypatch, tmp_path):
+    from allstar.voc.agents import retriever
+
+    local_csv = _write_csv(tmp_path, ["로컬 기본 데이터"])
+    monkeypatch.setattr(retriever, "_LOCAL_DEFAULT_CSV", str(local_csv))
+
+    resolved = retriever.resolve_csv_path(r"D:\host\project\voc\data\voc.csv")
+
+    assert resolved == str(local_csv)
+
+
 def test_specific_terms_prevent_broad_overmatch(tmp_path):
     """고객·개선 같은 범용어로 다른 주제가 끌려오지 않는다."""
     csv_path = _write_csv(tmp_path, [
