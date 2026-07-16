@@ -27,6 +27,10 @@ def run() -> int:
     env["ALLSTAR_SERVER_GUARDED"] = "1"
 
     append_shutdown_log(SHUTDOWN_LOG, f"종료 감시 시작: guard={guard_id}")
+    state_path.write_text(
+        '{"gui_pid": null, "streamlit_pid": null}',
+        encoding="utf-8",
+    )
     try:
         gui = subprocess.Popen(
             [sys.executable, str(MAIN)],
@@ -36,10 +40,6 @@ def run() -> int:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
-        )
-        state_path.write_text(
-            '{"gui_pid": %d, "streamlit_pid": null}' % gui.pid,
-            encoding="utf-8",
         )
         exit_code = gui.wait()
         if clean_marker.exists():

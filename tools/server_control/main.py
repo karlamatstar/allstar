@@ -9,10 +9,18 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import messagebox
 
-from lifecycle import append_shutdown_log, stop_project_services, terminate_process_tree
+from lifecycle import (
+    docker_ready,
+    ensure_docker_ready,
+    listening_pids,
+    stop_docker_desktop,
+    stop_project_services,
+    terminate_process_tree,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,8 +32,12 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 RUNTIME_DIR = LOG_DIR / "runtime"
 RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
 SHUTDOWN_LOG = LOG_DIR / "shutdown_guard.log"
+DEFAULT_WINDOW_SIZE = (1440, 900)
+MINIMUM_WINDOW_SIZE = (1200, 820)
+LEFT_PANEL_WIDTH = 440
 
 SERVICES = [
+    ("컨테이너 실행 환경 (Docker Desktop)", "docker-desktop", None, None, "system"),
     ("AI 상담 서버 (Portfolio API)", "portfolio-api", 8000, "http://localhost:8000/docs", "docker"),
     ("통합 화면 (Streamlit)", "streamlit", 8501, "http://localhost:8501", "host"),
     ("고객 의견 분석 서버 (VOC API)", "voc-api", 8100, "http://localhost:8100/docs", "docker"),
@@ -37,6 +49,14 @@ SERVICES = [
     ("최종 답변 개선 (Improver)", "voc-improver", 6006, None, "docker"),
     ("상태 정보 수집 (Prometheus)", "prometheus", 9090, "http://localhost:9090", "docker"),
     ("운영 상태 화면 (Grafana)", "grafana", 3000, "http://localhost:3000", "docker"),
+]
+
+WEB_LINKS = [
+    ("AI 상담 서버 기능 명세", "portfolio-api", 8000, "http://localhost:8000/docs"),
+    ("고객 의견 분석 서버 기능 명세", "voc-api", 8100, "http://localhost:8100/docs"),
+    ("통합 대시보드", "streamlit", 8501, "http://localhost:8501"),
+    ("상태 정보 수집 (Prometheus)", "prometheus", 9090, "http://localhost:9090"),
+    ("운영 상태 화면 (Grafana)", "grafana", 3000, "http://localhost:3000"),
 ]
 
 
@@ -52,14 +72,18 @@ class ServerControl(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("AllStar 서버 관리")
-        self.geometry("1280x760")
-        self.minsize(1000, 620)
+        self._configure_window()
         self.configure(bg="#151923")
         self.streamlit_process: subprocess.Popen | None = None
         self.streamlit_log = None
         self.closing = False
+        self.operation_running = False
+        self.status_refresh_running = False
+        self.status_after_id: str | None = None
         self.events: queue.Queue[str] = queue.Queue()
         self.rows: dict[str, tk.Label] = {}
+        self.web_buttons: dict[str, tuple[tk.Button, str]] = {}
+        self.service_status: dict[str, bool] = {}
         self.selected = tk.StringVar(value="portfolio-api")
         self.state_path = Path(
             os.getenv("ALLSTAR_SERVER_STATE", RUNTIME_DIR / f"server_control_{os.getpid()}.json")
@@ -70,8 +94,18 @@ class ServerControl(tk.Tk):
         self._write_runtime_state()
         self._build()
         self.protocol("WM_DELETE_WINDOW", self.close_application)
-        self.after(300, self._refresh_status)
+        self.after(300, self._request_status_refresh)
         self.after(200, self._drain_events)
+
+    def _configure_window(self):
+        width, height = DEFAULT_WINDOW_SIZE
+        minimum_width, minimum_height = MINIMUM_WINDOW_SIZE
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = max(0, (screen_width - width) // 2)
+        y = max(0, (screen_height - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(minimum_width, minimum_height)
 
     def _button(self, parent, text, command, color="#2f3b52"):
         return tk.Button(
@@ -85,16 +119,18 @@ class ServerControl(tk.Tk):
         top.pack(fill="x", padx=14, pady=12)
         tk.Label(top, text="⭐ AllStar 서버 관리 (Server Control Center)", bg="#151923", fg="#d9e7ff",
                  font=("Malgun Gothic", 15, "bold")).pack(side="left")
-        self._button(top, "전체 시작", self.start_all, "#26734d").pack(side="right", padx=4)
-        self._button(top, "전체 종료", self.stop_all, "#8a3142").pack(side="right", padx=4)
-        self._button(top, "상태 새로고침", self._refresh_status).pack(side="right", padx=4)
+        actions = tk.Frame(top, bg="#151923")
+        actions.pack(side="right")
+        self._button(actions, "상태 새로고침", self._request_status_refresh).pack(side="left", padx=4)
+        self._button(actions, "전체 시작", self.start_all, "#26734d").pack(side="left", padx=4)
+        self._button(actions, "전체 종료", self.stop_all, "#8a3142").pack(side="left", padx=4)
 
         body = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bg="#151923")
         body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
-        left = tk.Frame(body, bg="#202634", width=390)
+        left = tk.Frame(body, bg="#202634", width=LEFT_PANEL_WIDTH)
         right = tk.Frame(body, bg="#202634")
-        body.add(left, minsize=360)
-        body.add(right, minsize=550)
+        body.add(left, minsize=420)
+        body.add(right, minsize=700)
 
         tk.Label(left, text="실행 서비스", bg="#202634", fg="#a9b8d0",
                  font=("Malgun Gothic", 10, "bold")).pack(anchor="w", padx=12, pady=10)
@@ -102,7 +138,7 @@ class ServerControl(tk.Tk):
             frame = tk.Frame(left, bg="#202634")
             frame.pack(fill="x", padx=10, pady=2)
             tk.Radiobutton(
-                frame, text=f"{name}  :{port}", variable=self.selected, value=key,
+                frame, text=f"{name}{f'  :{port}' if port else ''}", variable=self.selected, value=key,
                 command=self.load_log, bg="#202634", fg="#e5ebf5",
                 selectcolor="#2f3b52", activebackground="#202634", activeforeground="white",
                 anchor="w", font=("Malgun Gothic", 9),
@@ -116,7 +152,19 @@ class ServerControl(tk.Tk):
         controls.pack(fill="x", padx=10, pady=12)
         self._button(controls, "개별 시작", self.start_selected, "#26734d").pack(side="left", padx=3)
         self._button(controls, "개별 종료", self.stop_selected, "#8a3142").pack(side="left", padx=3)
-        self._button(controls, "접속", self.open_selected).pack(side="left", padx=3)
+
+        tk.Label(left, text="웹 화면 바로가기", bg="#202634", fg="#a9b8d0",
+                 font=("Malgun Gothic", 10, "bold")).pack(anchor="w", padx=12, pady=(4, 6))
+        web_links = tk.Frame(left, bg="#202634")
+        web_links.pack(fill="x", padx=10, pady=(0, 12))
+        for label, key, _, url in WEB_LINKS:
+            button = self._button(
+                web_links,
+                f"⚪ {label}",
+                lambda service_key=key: self.open_web_service(service_key),
+            )
+            button.pack(fill="x", pady=2)
+            self.web_buttons[key] = (button, label)
 
         tk.Label(right, text="선택 서비스 실행 기록 (Log)", bg="#202634", fg="#a9b8d0",
                  font=("Malgun Gothic", 10, "bold")).pack(anchor="w", padx=12, pady=10)
@@ -159,6 +207,11 @@ class ServerControl(tk.Tk):
         )
 
     def _start_streamlit(self):
+        existing_pids = sorted(listening_pids(8501))
+        if existing_pids:
+            self._write_runtime_state(existing_pids[0])
+            self.events.put("\n[Streamlit] 8501 포트에서 이미 실행 중입니다.\n")
+            return
         if self.streamlit_process and self.streamlit_process.poll() is None:
             return
         if not PYTHON.exists():
@@ -180,8 +233,11 @@ class ServerControl(tk.Tk):
         self._write_runtime_state(self.streamlit_process.pid)
 
     def _stop_streamlit(self):
+        pids = listening_pids(8501)
         if self.streamlit_process and self.streamlit_process.poll() is None:
-            terminate_process_tree(self.streamlit_process.pid, SHUTDOWN_LOG)
+            pids.add(self.streamlit_process.pid)
+        for pid in sorted(pids):
+            terminate_process_tree(pid, SHUTDOWN_LOG)
         if self.streamlit_log:
             self.streamlit_log.close()
             self.streamlit_log = None
@@ -189,12 +245,50 @@ class ServerControl(tk.Tk):
         self._write_runtime_state()
 
     def start_all(self):
-        docker_services = [key for _, key, _, _, kind in SERVICES if kind == "docker"]
-        self._docker("up", "-d", *docker_services, done=self._start_streamlit)
+        if self.operation_running:
+            self.events.put("\n[안내] 다른 시작·종료 작업이 진행 중입니다.\n")
+            return
+        self.operation_running = True
+
+        def worker():
+            self.events.put("\n[전체 시작] Docker Desktop 상태를 확인합니다.\n")
+            if not ensure_docker_ready(SHUTDOWN_LOG):
+                self.events.put("[실패] Docker Desktop을 준비하지 못했습니다. 종료 기록을 확인하세요.\n")
+                self.after(0, self._finish_operation)
+                return
+            self.events.put("[준비 완료] Docker Desktop이 실행 중입니다. 서버를 시작합니다.\n")
+            docker_services = [key for _, key, _, _, kind in SERVICES if kind == "docker"]
+            completed = subprocess.run(
+                ["docker", "compose", "up", "-d", *docker_services],
+                cwd=ROOT, text=True, encoding="utf-8", errors="replace",
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                creationflags=subprocess.CREATE_NO_WINDOW, check=False,
+            )
+            self.events.put(completed.stdout or "")
+            if completed.returncode == 0:
+                self.after(0, self._start_streamlit)
+            else:
+                self.events.put(f"\n[서버 시작 실패: {completed.returncode}]\n")
+            self.after(0, self._finish_operation)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def stop_all(self):
-        self._stop_streamlit()
-        self._docker("stop")
+        if self.operation_running:
+            self.events.put("\n[안내] 다른 시작·종료 작업이 진행 중입니다.\n")
+            return
+        self.operation_running = True
+
+        def worker():
+            stop_project_services(ROOT, self.state_path, SHUTDOWN_LOG)
+            self.events.put("\n[전체 종료] Streamlit과 프로젝트 서버를 종료했습니다.\n")
+            self.after(0, self._finish_operation)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_operation(self):
+        self.operation_running = False
+        self._request_status_refresh()
 
     def close_application(self):
         if self.closing:
@@ -218,22 +312,60 @@ class ServerControl(tk.Tk):
 
     def start_selected(self):
         _, key, _, _, kind = self._service(self.selected.get())
-        self._start_streamlit() if kind == "host" else self._docker("up", "-d", key)
+        if kind == "system":
+            threading.Thread(target=self._start_docker_selected, daemon=True).start()
+        elif kind == "host":
+            self._start_streamlit()
+        else:
+            if not docker_ready():
+                self.events.put(
+                    "\n[개별 시작 불가] Docker Desktop이 꺼져 있습니다.\n"
+                    "실행 서비스에서 '컨테이너 실행 환경 (Docker Desktop)'을 선택해 먼저 시작하거나 "
+                    "상단의 '전체 시작'을 이용하세요.\n"
+                )
+                return
+            self._docker("up", "-d", key, done=self._request_status_refresh)
+
+    def _start_docker_selected(self):
+        success = ensure_docker_ready(SHUTDOWN_LOG)
+        self.events.put("\nDocker Desktop 준비 완료\n" if success else "\nDocker Desktop 실행 실패\n")
+        self.after(0, self._request_status_refresh)
 
     def stop_selected(self):
         _, key, _, _, kind = self._service(self.selected.get())
-        self._stop_streamlit() if kind == "host" else self._docker("stop", key)
-
-    def open_selected(self):
-        _, _, _, url, _ = self._service(self.selected.get())
-        if url:
-            webbrowser.open(url)
+        if kind == "system":
+            threading.Thread(target=self._stop_docker_selected, daemon=True).start()
+        elif kind == "host":
+            threading.Thread(target=self._stop_streamlit_selected, daemon=True).start()
         else:
-            messagebox.showinfo("접속 주소 없음", "이 서비스는 브라우저 화면을 제공하지 않습니다.")
+            self._docker("stop", key, done=self._request_status_refresh)
+
+    def _stop_docker_selected(self):
+        success = stop_docker_desktop(SHUTDOWN_LOG)
+        self.events.put("\nDocker Desktop 종료 완료\n" if success else "\nDocker Desktop 종료 실패\n")
+        self.after(0, self._request_status_refresh)
+
+    def _stop_streamlit_selected(self):
+        self._stop_streamlit()
+        self.events.put("\nStreamlit 종료 완료\n")
+        self.after(0, self._request_status_refresh)
+
+    def open_web_service(self, key: str):
+        label, port, url = next((label, port, url) for label, link_key, port, url in WEB_LINKS if link_key == key)
+        if not port_open(port):
+            messagebox.showwarning(
+                "서버 실행 필요",
+                f"'{label}'에 접속할 수 없습니다.\n\n해당 서버를 먼저 시작한 뒤 다시 눌러주세요.",
+            )
+            self._request_status_refresh()
+            return
+        webbrowser.open(url)
 
     def load_log(self):
         _, key, _, _, kind = self._service(self.selected.get())
-        if kind == "host":
+        if kind == "system":
+            self._run(["docker", "desktop", "status"])
+        elif kind == "host":
             path = LOG_DIR / "streamlit.log"
             content = path.read_text(encoding="utf-8", errors="replace")[-30000:] if path.exists() else "아직 로그가 없습니다."
             self._set_log(content)
@@ -259,13 +391,39 @@ class ServerControl(tk.Tk):
         if not self.closing:
             self.after(200, self._drain_events)
 
-    def _refresh_status(self):
+    def _request_status_refresh(self):
+        if self.closing or self.status_refresh_running:
+            return
+        self.status_refresh_running = True
+
+        def worker():
+            results = {"docker-desktop": docker_ready()}
+            port_services = [(key, port) for _, key, port, _, _ in SERVICES if port]
+            with ThreadPoolExecutor(max_workers=len(port_services)) as executor:
+                checks = {key: executor.submit(port_open, port) for key, port in port_services}
+                results.update({key: check.result() for key, check in checks.items()})
+            self.after(0, self._apply_status, results)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_status(self, results: dict[str, bool]):
         if self.closing:
             return
-        for _, key, port, _, _ in SERVICES:
-            ready = port_open(port)
+        for _, key, _, _, _ in SERVICES:
+            ready = results.get(key, False)
+            self.service_status[key] = ready
             self.rows[key].configure(text="● 실행 중" if ready else "● 중지", fg="#70c987" if ready else "#788398")
-        self.after(2500, self._refresh_status)
+            if key in self.web_buttons:
+                button, label = self.web_buttons[key]
+                button.configure(text=f"{'🟢' if ready else '⚪'} {label}")
+        self.status_refresh_running = False
+        if self.status_after_id:
+            self.after_cancel(self.status_after_id)
+        self.status_after_id = self.after(2500, self._scheduled_status_refresh)
+
+    def _scheduled_status_refresh(self):
+        self.status_after_id = None
+        self._request_status_refresh()
 
 
 if __name__ == "__main__":
