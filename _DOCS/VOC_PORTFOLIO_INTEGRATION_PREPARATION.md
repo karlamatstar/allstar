@@ -213,105 +213,61 @@ VOC 리포트는 세 가지 계열로 분리한다. 이 분류는 기존 AI Agen
 - 배치 평가 CSV·JSON·Markdown 리포트와 최신본
 - 기존 검증·성능·결함 리포트
 
-기존 생성기의 평가 로직은 재사용하되 저장 경로는 통합 기준에 맞췄다. 원본 로그는 `logs/ai_agent/`, 생성 리포트는 `quality/reports/ai_agent/`로 분리하며 코드와 화면도 새 경로를 사용한다.
+기존 생성기의 평가 로직은 재사용한다. 현재 구현은 `_OUTPUT/logs/ai_agent/`와 `_OUTPUT/reports/ai_agent/`를 사용한다.
 
-## 5. 적용된 기준 디렉터리 구조
+## 5. 목표 디렉터리 구조
 
-아래 구조는 권장안에 머무르지 않고 `_Total`의 실제 저장 기준으로 적용한다. 실행 전에도 주요 폴더가 보이도록 `.gitkeep`을 두며, 실행 결과 파일은 `.gitignore`로 제외한다.
+> 상태: **구조 기준 확정 및 실제 코드·폴더 이전 완료**
+
+현재 구현은 아래 `src/allstar/`, `tools/`, `ops/`, `_OUTPUT/` 구조를 사용한다. 이전의 `app/`, `ai_quality/`, `voc/`, `voc_api/`, `logs/`, `quality/reports/` 최상위 경로는 제거했다.
+
+최종 기준과 현재 경로별 상세 이동표는 `PROJECT_DIRECTORY_STRUCTURE.md`를 단일 기준 문서로 사용한다.
 
 ```text
 _Total/
-├─ .env
-├─ .env.example
-├─ AGENTS.md 또는 상위 AGENTS.md 사용
-├─ Dockerfile.portfolio
-├─ Dockerfile.voc
-├─ docker-compose.yml
-├─ app/                         기존 AI Agent FastAPI
-├─ dashboard/                   통합 Streamlit 대시보드
-├─ ai_quality/                  기존 AI Agent 품질 파이프라인
-├─ voc/
-│  ├─ agents/                   6개 VOC 에이전트
-│  ├─ llm_wrappers/
-│  ├─ utils/
-│  ├─ quality_diagnosis/
-│  ├─ grpc_server.py
-│  ├─ voc.proto
-│  ├─ voc_pb2.py
-│  ├─ voc_pb2_grpc.py
-│  └─ voc.csv
-├─ voc_api/
-│  ├─ main.py                   VOC HTTP 게이트웨이
-│  ├─ schemas.py
-│  ├─ metrics.py
-│  ├─ log_store.py
-│  ├─ judge.py
-│  ├─ runtime.py
-│  └─ report_generator.py
-├─ quality/
-│  └─ reports/
-│     ├─ ai_agent/
-│     │  ├─ batch/
-│     │  │  └─ history/
-│     │  └─ live/
-│     │     └─ history/
-│     ├─ voc/
-│        ├─ live/
-│        │  ├─ latest/
-│        │  └─ history/
-│        ├─ testcase/
-│        │  ├─ a/
-│        │  ├─ b/
-│        │  ├─ c/
-│        │  └─ d/
-│        └─ cross_validation/
-│     ├─ defects/
-│     │  ├─ chatbot/
-│     │  └─ chaos/
-│     └─ performance/
-├─ logs/                       리포트 근거 및 실행 로그(자동 생성)
-│  ├─ voc/
-│  │  ├─ live/
-│  │  │  ├─ conversations/    대화 로그 JSONL
-│  │  │  └─ judgments/        실시간 Judge 로그 JSONL
-│  │  ├─ testcase/
-│  │  │  ├─ a/
-│  │  │  ├─ b/
-│  │  │  ├─ c/
-│  │  │  ├─ d/
-│  │  │  └─ pytest/           VOC pytest 실행 로그(실행 시 생성)
-│  │  └─ cross_validation/        비교 입력·결과 로그
+├─ src/allstar/
 │  ├─ ai_agent/
-│  │  ├─ live/
-│  │  │  ├─ conversations/    AI Agent 대화 로그
-│  │  │  └─ judgments/        AI Agent 실시간 채점 로그
-│  │  └─ testcase/             AI Agent 배치 테스트 실행 로그
-│  ├─ services/                 서버·에이전트·GUI 실행 로그
-│  └─ report_manifests/         리포트별 사용 로그 목록
-├─ monitoring/
-│  ├─ prometheus.yml
-│  └─ grafana/
-├─ RUN/
-│  ├─ server_control_gui.py
-│  ├─ start_server_control.bat
-│  ├─ start_server_control_hidden.vbs
-│  ├─ qa_control_gui.py
-│  ├─ start_qa_control.bat
-│  └─ start_qa_control_hidden.vbs
+│  │  ├─ api/
+│  │  └─ evaluation/
+│  ├─ voc/
+│  │  ├─ api/
+│  │  ├─ agents/
+│  │  ├─ llm/
+│  │  ├─ runtime/
+│  │  ├─ mcp/
+│  │  ├─ evaluation/
+│  │  ├─ protocol/
+│  │  └─ data/
+│  ├─ ui/dashboard/
+│  └─ shared/
+├─ tools/
+│  ├─ server_control/
+│  ├─ qa_control/
+│  └─ scripts/
+├─ ops/
+│  ├─ docker/
+│  ├─ monitoring/
+│  └─ performance/
+├─ tests/
+│  ├─ ai_agent/
+│  ├─ voc/
+│  └─ integration/
+├─ RUN/                       더블클릭 실행 파일만 유지
+├─ _OUTPUT/
+│  ├─ logs/
+│  └─ reports/
 └─ _DOCS/
 ```
 
-저장 원칙은 다음과 같다.
+주요 결정은 다음과 같다.
 
-- `ai_quality/`: AI Agent 품질평가 코드와 테스트케이스 원본
-- `quality/reports/`: 사람이 읽는 CSV·JSON·Markdown·문서형 결과
-- `logs/`: 대화·채점·테스트·교차검증 원본과 서비스 실행 기록
-- `logs/report_manifests/`: 각 리포트가 어떤 원본 로그를 사용했는지 연결하는 manifest
-- `_DOCS/`: 구현 기준과 사용법 문서만 저장하며 실행 리포트 사본을 만들지 않음
-- 기존 `quality/reports/live_log/`, `quality/reports/testcase_log/` 경로는 사용하지 않는다.
-- 결함 기록 파이썬 코드는 `ai_quality/defect_logger.py`에 두고 생성 결과만 `quality/reports/defects/`에 저장한다.
-
-정확한 구조는 구현 과정에서 조정할 수 있지만 리포트 데이터 영역과 원본 로그 영역은 처음부터 분리해야 한다.
+- `quality/`, `ai_quality/` 이름을 없애고 평가 코드는 각 서비스의 `evaluation/`에 둔다.
+- `app/`은 `src/allstar/ai_agent/api/`로 역할을 명확히 한다.
+- `voc/`와 `voc_api/`를 `src/allstar/voc/` 아래에 결합한다.
+- 공통 모델 프로필과 경로는 `src/allstar/shared/`에서 관리한다.
+- `logs/`와 `quality/reports/`를 `_OUTPUT/logs/`, `_OUTPUT/reports/`로 결합한다.
+- `_DOCS/`에는 기준 문서만 저장하고 자동 생성 리포트는 저장하지 않는다.
+- 현재 실행 경로와 검증 결과는 `INTEGRATED_PROJECT_IMPLEMENTATION.md`를 따른다.
 
 ## 6. 서비스 아키텍처
 
@@ -510,31 +466,31 @@ Grafana :3000
 
 ### 8.4 리포트 원본 로그 자동 생성
 
-- 사용자가 로그 파일을 따로 만들지 않아도 대화, 채점, 테스트, 교차검증 실행 시점에 `logs/`에 자동 생성한다.
-- 실시간 VOC 리포트는 `logs/voc/live/conversations/`과 `logs/voc/live/judgments/`를 원천으로 삼는다.
+- 사용자가 로그 파일을 따로 만들지 않아도 대화, 채점, 테스트, 교차검증 실행 시점에 `_OUTPUT/logs/`에 자동 생성한다.
+- 실시간 VOC 리포트는 `_OUTPUT/logs/voc/live/conversations/`과 `_OUTPUT/logs/voc/live/judgments/`를 원천으로 삼는다.
 - 실시간 리포트 manifest에는 사용한 로그 목록과 함께 A~D별 요청 수, 실제 모델 조합, 추론 설정을 기록한다.
-- A~D 개별 리포트는 각각 `logs/voc/testcase/a/`~`d/`에 있는 해당 실험군의 실행 로그만 사용한다.
-- 교차검증 종합 리포트는 `logs/voc/cross_validation/`에 비교 대상 A~D, 입력 파일, 집계 결과를 남긴다.
-- 각 리포트 생성 시 `logs/report_manifests/`에 manifest JSON을 자동 생성하여 리포트 ID, 생성 시각, 사용한 로그 파일, 기간, 테스트 조합, 모델을 추적한다.
+- A~D 개별 리포트는 각각 `_OUTPUT/logs/voc/testcase/a/`~`d/`에 있는 해당 실험군의 실행 로그만 사용한다.
+- 교차검증 종합 리포트의 원본은 `_OUTPUT/logs/voc/cross_validation/`에 비교 대상 A~D, 입력 파일, 집계 결과를 남긴다.
+- 각 리포트 생성 시 `_OUTPUT/reports/manifests/`에 manifest JSON을 자동 생성하여 리포트 ID, 생성 시각, 사용한 로그 파일, 기간, 테스트 조합, 모델을 추적한다.
 - 로그 파일명은 날짜와 실행 ID를 포함한다. 예: `2026-07-16_run-<uuid>.jsonl`.
 - 실행 중에는 로그를 즉시 append하여 프로세스가 중단되어도 이미 처리한 결과를 복구할 수 있게 한다.
 - 리포트는 변경 가능한 현재 상태를 직접 읽지 않고, 생성 시점에 확정된 로그와 manifest를 기준으로 만든다.
 
 ### 8.5 서비스 실행 로그
 
-- 포트폴리오 API, VOC API, 6개 에이전트, Streamlit, Prometheus, Grafana, Server GUI, QA GUI의 표준 출력·오류를 `logs/services/<service-name>/`에 자동 저장한다.
+- 포트폴리오 API, VOC API, 6개 에이전트, Streamlit, Prometheus, Grafana, Server GUI, QA GUI의 표준 출력·오류를 `_OUTPUT/logs/services/<service-name>/`에 자동 저장한다.
 - VOC 요청 관련 서비스 로그는 각 단계 시작·완료·실패 줄에 `request_id`, `profile_id`, 실제 모델명을 포함한다.
 - Server GUI의 터미널은 이 서비스 로그를 실시간으로 보여준다.
 - 실행 로그는 리포트 점수 계산에 직접 섞지 않고, 실패 원인과 실행 상태를 추적하는 용도로 사용한다.
 
 ### 8.6 AI Agent 로그·리포트 동일 적용
 
-- AI Agent 챗봇 요청 시 `logs/ai_agent/live/conversations/`에 대화를 즉시 자동 저장한다.
-- 동일 대화의 실시간 채점은 `logs/ai_agent/live/judgments/`에 저장하고 `request_id`로 연결한다.
+- AI Agent 챗봇 요청 시 `_OUTPUT/logs/ai_agent/live/conversations/`에 대화를 즉시 자동 저장한다.
+- 동일 대화의 실시간 채점은 `_OUTPUT/logs/ai_agent/live/judgments/`에 저장하고 `request_id`로 연결한다.
 - AI Agent 실시간 리포트는 위 두 로그만 읽어 생성한다.
-- AI Agent 테스트케이스 실행 시 케이스별 입력·응답·채점·오류·수행시간을 `logs/ai_agent/testcase/`에 자동 저장한다.
+- AI Agent 테스트케이스 실행 시 케이스별 입력·응답·채점·오류·수행시간을 `_OUTPUT/logs/ai_agent/testcase/`에 자동 저장한다.
 - AI Agent 테스트케이스 리포트는 해당 실행 ID의 확정된 로그에서 생성하며, 최신본과 시간별 이력본을 모두 남긴다.
-- AI Agent 리포트도 VOC와 동일하게 `logs/report_manifests/`에 사용한 로그 목록을 남긴다.
+- AI Agent 리포트도 VOC와 동일하게 `_OUTPUT/reports/manifests/`에 사용한 로그 목록을 남긴다.
 - 이 변경은 저장 위치와 추적성을 정리하는 것이며, 기존 평가 기준·화면·리포트 내용을 임의로 바꾸지 않는다.
 
 ## 9. Streamlit 통합 대시보드
@@ -964,7 +920,7 @@ AWS 권한 정책이 확정되기 전에는 QA 실행 API를 인터넷에 공개
    - 부정·적대적 입력 안전 처리
    - AI Agent 품질 파이프라인과 리포트 생성
 3. 결과 산출물 생성
-   - `quality/reports/defects/chaos/defect_report.md`
+   - `_OUTPUT/reports/defects/chaos/defect_report.md`
    - 시간별 Markdown 이력본
    - `final_defect_report.docx`
 4. 기존 Jira 결함 자동 등록 코드는 존재하지만 현재 호출은 주석 처리되어 비활성화 상태다.
@@ -975,7 +931,7 @@ AWS 권한 정책이 확정되기 전에는 QA 실행 API를 인터넷에 공개
 - Jira 이슈 생성 API를 호출하지 않는다.
 - Jira 계정·프로젝트·API token 설정을 통합 프로젝트의 필수 환경변수에 포함하지 않는다.
 - GUI에 Jira 자동 등록 버튼·옵션·자격 증명 입력란을 추가하지 않는다.
-- 기존 포트폴리오의 `app/jira_client.py`는 원본 보존 원칙에 따라 삭제하지 않지만, 신규 통합 실행 흐름에 연결하지 않는다.
+- 현재 구현의 `app/jira_client.py`는 원본 보존 원칙에 따라 삭제하지 않지만 신규 통합 실행 흐름에 연결하지 않는다. 구조 개편 시 보존이 필요하면 `src/allstar/ai_agent/api/integrations/jira_client.py`로 이동한다.
 - 추후 사용자가 별도로 요청할 때 Jira 연동을 독립 기능으로 재검토한다.
 
 통합 구현 시 `검증 테스트`가 실제 AI API를 호출하는 품질 테스트케이스는 상위 지침대로 대표 2개만 사용하도록 고정한다. 현재 `test_quality_pipeline.py`의 `SAMPLE_SIZE=2`는 유지하고, 다른 테스트가 숨은 대량 API 호출을 추가하지 않는지 확인한다.
@@ -1102,13 +1058,13 @@ ANTHROPIC_THINKING_JUDGE=disabled
 
 Server Control Center와 QA Control Center 모두 `RUN/`에 더블클릭용 `.bat` 파일을 함께 제공한다.
 
-- `start_server_control.bat` → `server_control_gui.py` 즉시 실행
-- `start_qa_control.bat` → `qa_control_gui.py` 즉시 실행
+- `start_servers.bat` → `tools/server_control/main.py` 즉시 실행
+- `start_qa.bat` → `tools/qa_control/main.py` 즉시 실행
 - 각 `.bat`는 통합 프로젝트의 `.venv/Scripts/pythonw.exe`를 우선 사용하고, 없으면 시스템 `pyw` 또는 `pythonw`를 탐색한다.
 - 실행 기준 경로는 `%~dp0`로 고정해 바로가기를 다른 위치로 옮겨도 작업 폴더가 틀어지지 않게 한다.
 - 런처는 GUI를 독립 프로세스로 시작한 뒤 즉시 종료하여 별도 CMD 창이 계속 남지 않게 한다.
 - `.bat`를 더블클릭하는 순간 Windows CMD 창이 짧게 깜빡일 수 있다. 이 깜빡임까지 없애기 위해 동일 GUI의 `start_*_hidden.vbs`를 함께 제공한다.
-- 콘솔을 표시하지 않는 대신 시작 오류·예외은 GUI 메시지와 `logs/services/launcher/`에 자동 저장한다.
+- 콘솔을 표시하지 않는 대신 시작 오류·예외는 GUI 메시지와 `_OUTPUT/logs/services/launcher/`에 자동 저장한다.
 
 ## 15. voc_upgrade 사용 시 선행 정리 대상
 
@@ -1245,7 +1201,7 @@ Server Control Center와 QA Control Center 모두 `RUN/`에 더블클릭용 `.ba
 - 실행하지 않은 실험군 리포트를 임의 생성하지 않음
 - A~D 중 2개 이상으로 종합 비교 리포트 생성 가능
 - 세 리포트 계열의 데이터가 서로 섞이지 않음
-- 리포트 원본 로그가 `logs/`의 정해진 계열별 폴더에 자동 생성됨
+- 리포트 원본 로그가 `_OUTPUT/logs/`의 정해진 계열별 폴더에 자동 생성됨
 - 각 리포트에 연결된 manifest로 사용한 로그·기간·모델·실험군을 역추적할 수 있음
 - 실행 중 중단되어도 이미 저장된 JSONL 로그는 유지됨
 

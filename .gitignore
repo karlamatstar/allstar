@@ -5,18 +5,15 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-logs/**/*.jsonl
-logs/**/*.json
-logs/**/*.log
-logs/**/*.pid
-quality/reports/**/*.csv
-quality/reports/**/*.json
-quality/reports/**/*.jsonl
-quality/reports/**/*.md
-quality/reports/**/*.docx
-quality/reports/**/*.pptx
-!quality/reports/**/.gitkeep
-voc/quality_diagnosis/reports/
+_OUTPUT/**/*.csv
+_OUTPUT/**/*.json
+_OUTPUT/**/*.jsonl
+_OUTPUT/**/*.log
+_OUTPUT/**/*.pid
+_OUTPUT/**/*.md
+_OUTPUT/**/*.docx
+_OUTPUT/**/*.pptx
+!_OUTPUT/**/.gitkeep
 
 grafana-data/
 prometheus-data/

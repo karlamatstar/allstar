@@ -25,6 +25,14 @@ dependencies = [
 qa = ["pytest>=9.1,<10"]
 reports = ["python-docx>=1.2,<2", "python-pptx>=1.0,<2"]
 
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.pytest.ini_options]
-testpaths = ["tests", "voc/quality_diagnosis"]
-addopts = "-p no:cacheprovider"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-p no:cacheprovider --import-mode=importlib"

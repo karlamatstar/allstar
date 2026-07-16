@@ -1,0 +1,8 @@
+FROM python:3.12-slim
+
+WORKDIR /srv/app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ ./src/
+ENV PYTHONPATH=/srv/app/src
+EXPOSE 8100 6001 6002 6003 6004 6005 6006

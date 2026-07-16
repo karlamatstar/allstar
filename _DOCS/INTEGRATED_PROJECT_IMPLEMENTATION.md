@@ -6,11 +6,19 @@
 
 ## 1. 현재 구현 상태
 
+### 디렉터리 개편 적용 상태
+
+- 목표 디렉터리와 명명 규칙은 `PROJECT_DIRECTORY_STRUCTURE.md`에 확정하고 실제 코드에 적용했다.
+- 개편 전 기록 기준은 Git 커밋 `80022b0`이다.
+- 제품 코드는 `src/allstar/`, 실행 도구는 `tools/`, 운영 설정은 `ops/`, 산출물은 `_OUTPUT/`을 사용한다.
+- Python import와 서버 진입점은 `allstar.*` 패키지 기준으로 통일했다.
+- 구조 개편 과정에서 A~D 모델 구성, 로그 필드, 보고서 내용은 유지했다.
+
 ### 구현 완료
 
 - 기존 AI Agent의 `app`, `ai_quality`, `monitoring`, `performance`, `scripts`, `tests` 자산 통합
 - 기존 VOC의 6개 에이전트, gRPC, LLM 래퍼, 유틸리티, QA 소스 복사
-- A~D 중앙 모델 프로필 `config/model_profiles.py`
+- A~D 중앙 모델 프로필 `src/allstar/shared/model_profiles.py`
 - 요청별 생성 모델 프로필을 전달하는 gRPC `ModelExecutionConfig`
 - Interpreter·Retriever·Summarizer·Evaluator·Critic·Improver의 중복 단계 호출 제거
 - Summarizer 중심 단일 오케스트레이션
@@ -31,7 +39,7 @@
 - 7단계 트래커는 처리 중·완료·실패 상태와 전체 경과 시간을 표시한다.
 - 각 gRPC 단계의 실시간 진행 이벤트를 별도 스트림으로 전송하는 기능은 아직 없다.
 - 완료 뒤 `trace`에는 단계 시간이 남지만 Streamlit 상세 패널은 후속 개선 대상이다.
-- 기존 Portfolio 대시보드 원본은 `dashboard/portfolio_legacy.py`에 보존했으며 통합 화면은 핵심 챗봇·링크 중심으로 먼저 구현했다.
+- 기존 Portfolio 대시보드 원본은 `src/allstar/ui/dashboard/portfolio_legacy.py`에 보존했으며 통합 화면은 핵심 챗봇·링크 중심으로 먼저 구현했다.
 
 ### 아직 실행 검증하지 않음
 
@@ -78,31 +86,31 @@ Docker Compose
 ## 4. 로그와 리포트
 
 ```text
-logs/ai_agent/live/conversations/conversations.jsonl
-logs/ai_agent/live/judgments/live_evaluations.jsonl
-logs/ai_agent/testcase/
-logs/voc/live/conversations/YYYY-MM-DD.jsonl
-logs/voc/live/judgments/YYYY-MM-DD.jsonl
-logs/voc/testcase/a~d/
-logs/voc/cross_validation/
-logs/services/
-logs/report_manifests/
-quality/reports/ai_agent/batch/
-quality/reports/ai_agent/batch/history/
-quality/reports/ai_agent/live/
-quality/reports/ai_agent/live/history/
-quality/reports/voc/live/latest/voc_live_report.md
-quality/reports/voc/live/history/
-quality/reports/voc/testcase/a~d/
-quality/reports/voc/cross_validation/
-quality/reports/defects/chatbot/
-quality/reports/defects/chaos/
-quality/reports/performance/
+_OUTPUT/logs/ai_agent/live/conversations/conversations.jsonl
+_OUTPUT/logs/ai_agent/live/judgments/live_evaluations.jsonl
+_OUTPUT/logs/ai_agent/testcase/
+_OUTPUT/logs/voc/live/conversations/YYYY-MM-DD.jsonl
+_OUTPUT/logs/voc/live/judgments/YYYY-MM-DD.jsonl
+_OUTPUT/logs/voc/testcase/a~d/
+_OUTPUT/logs/voc/cross_validation/
+_OUTPUT/logs/services/
+_OUTPUT/reports/manifests/
+_OUTPUT/reports/ai_agent/batch/
+_OUTPUT/reports/ai_agent/batch/history/
+_OUTPUT/reports/ai_agent/live/
+_OUTPUT/reports/ai_agent/live/history/
+_OUTPUT/reports/voc/live/latest/voc_live_report.md
+_OUTPUT/reports/voc/live/history/
+_OUTPUT/reports/voc/testcase/a~d/
+_OUTPUT/reports/voc/cross_validation/
+_OUTPUT/reports/defects/chatbot/
+_OUTPUT/reports/defects/chaos/
+_OUTPUT/reports/performance/
 ```
 
 원본 로그와 생성 리포트는 서로 다른 최상위 폴더에 저장한다. 실시간 리포트는 해당 서비스의 실시간 대화·채점 로그만 사용하며 테스트케이스 및 교차검증 결과와 섞지 않는다. 2026-07-16에 기존 `quality/reports/live_log/`, `quality/reports/testcase_log/` 사용을 종료하고 위 구조로 코드·화면·테스트 경로를 이전했다.
 
-실행 코드가 리포트 폴더에 섞이지 않도록 챗봇 결함 기록기는 `ai_quality/defect_logger.py`에 두고, Markdown 결과만 `quality/reports/defects/chatbot/`에 저장한다. 성능 리포트 화면도 실제 생성 위치인 `quality/reports/performance/`를 사용한다.
+실행 코드가 리포트 폴더에 섞이지 않도록 챗봇 결함 기록기는 `src/allstar/ai_agent/evaluation/defect_logger.py`에 두고, Markdown 결과만 `_OUTPUT/reports/defects/chatbot/`에 저장한다. 성능 리포트 화면도 `_OUTPUT/reports/performance/`를 사용한다.
 
 ## 5. 2026-07-16 검증 결과
 
@@ -125,9 +133,19 @@ quality/reports/performance/
 - 전체 테스트 14개 수집 성공
 - 디렉터리 기준 적용 후 비AI 통합 테스트 16개 통과
 - 디렉터리 기준 적용 후 VOC 비AI 회귀 테스트 72개 통과, 환경 조건 1개 건너뜀
-- 새 `ai_quality/`를 포함한 Portfolio Docker 이미지 재빌드 및 `/health` 200 확인
+- 구조 개편 전 Portfolio Docker 이미지 재빌드 및 `/health` 200 확인
 - Streamlit 내장 화면 실행 테스트 통과
 - 실제 API 테스트를 포함한 `tests/` 전체 18개 수집 성공
+
+### `src/allstar` 구조 전환 후 추가 검증
+
+- `src`, `tools`, `tests` 전체 Python 문법 검사 통과
+- 비AI 안전 명령 기준 100개 통과, 실제 API E2E 이름 2개 선택 제외
+- 서버 미가동 상태에서 E2E까지 수집한 확장 회귀는 97개 통과, 환경 조건 5개 건너뜀
+- Docker Compose 구성 검사와 전체 이미지 빌드 통과
+- Docker 서비스 10개 기동, API·Prometheus·Grafana Health `200`, VOC 에이전트 6개 `ready=true` 확인
+- Windows 호스트 Streamlit `/_stcore/health` 응답 `200 ok` 확인
+- 실제 OpenAI·Anthropic 호출은 실행하지 않음
 
 ### 디렉터리 정렬 검증 참고
 
@@ -145,10 +163,12 @@ quality/reports/performance/
 
 ## 6. 다음 작업 우선순위
 
-1. API 키 설정 후 A 프로필 대표 2건 실제 검증
-2. 단계별 실시간 이벤트와 상세 결과 패널 구현
-3. VOC Grafana 대시보드 추가
-4. A~D 교차검증 종합 리포트 화면 완성
-5. 실제 GUI 사용 후 Server Control 로그 화면 개선점 반영
+1. `PROJECT_DIRECTORY_STRUCTURE.md` 기준으로 디렉터리 구조 개편
+2. import, Docker, Streamlit, Server·QA GUI 및 로그·리포트 경로 비AI 회귀 검증
+3. API 키 설정 후 A 프로필 대표 2건 실제 검증
+4. 단계별 실시간 이벤트와 상세 결과 패널 구현
+5. VOC Grafana 대시보드 추가
+6. A~D 교차검증 종합 리포트 화면 완성
+7. 실제 GUI 사용 후 Server Control 로그 화면 개선점 반영
 
 AWS 또는 외부 공개 배포 전에는 QA 권한, 인증, 부하 제한, HTTPS, 감사 로그 정책을 다시 검토한다.
