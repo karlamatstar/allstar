@@ -16,21 +16,21 @@ LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 AI_TESTS = [
-    ("Smoke Test", ["k6", "run", "ops/performance/smoke_test.js"], False),
-    ("Load Test", ["k6", "run", "ops/performance/load_test.js"], True),
-    ("Random Test", ["k6", "run", "ops/performance/random_test.js"], True),
-    ("Stress Test", ["k6", "run", "ops/performance/stress_test.js"], True),
-    ("Spike Test", ["k6", "run", "ops/performance/spike_test.js"], True),
+    ("기본 동작 시험 (Smoke Test)", ["k6", "run", "ops/performance/smoke_test.js"], False),
+    ("일반 부하 시험 (Load Test)", ["k6", "run", "ops/performance/load_test.js"], True),
+    ("무작위 요청 시험 (Random Test)", ["k6", "run", "ops/performance/random_test.js"], True),
+    ("한계 부하 시험 (Stress Test)", ["k6", "run", "ops/performance/stress_test.js"], True),
+    ("순간 급증 시험 (Spike Test)", ["k6", "run", "ops/performance/spike_test.js"], True),
     ("검증 테스트", [PY, "-u", "tools/scripts/run_validation_tests.py"], True),
-    ("API 종합 성능 테스트", [PY, "-u", "tools/scripts/run_performance_tests.py"], True),
-    ("API 끊김 방어 테스트", [PY, "-u", "tools/scripts/run_api_disconnect_test.py"], True),
+    ("서버 연결 성능 종합 시험 (API)", [PY, "-u", "tools/scripts/run_performance_tests.py"], True),
+    ("서버 연결 끊김 방어 시험 (API)", [PY, "-u", "tools/scripts/run_api_disconnect_test.py"], True),
 ]
 
 PROFILE_LABELS = {
-    "A": "생성 OpenAI / gpt-5.6-luna / none\n평가 Anthropic / claude-sonnet-5 / low",
-    "B": "생성 Anthropic / claude-sonnet-4-6 / low\n평가 OpenAI / gpt-5.6-terra / low",
-    "C": "생성 OpenAI / gpt-5.6-luna / none\n평가 OpenAI / gpt-5.6-terra / low",
-    "D": "생성 Anthropic / claude-sonnet-4-6 / low\n평가 Anthropic / claude-sonnet-5 / low",
+    "A": "답변 생성: OpenAI / gpt-5.6-luna / 추론 끔(none)\n독립 품질 평가(Judge): Anthropic / claude-sonnet-5 / 낮음(low)",
+    "B": "답변 생성: Anthropic / claude-sonnet-4-6 / 낮음(low)\n독립 품질 평가(Judge): OpenAI / gpt-5.6-terra / 낮음(low)",
+    "C": "답변 생성: OpenAI / gpt-5.6-luna / 추론 끔(none)\n독립 품질 평가(Judge): OpenAI / gpt-5.6-terra / 낮음(low)",
+    "D": "답변 생성: Anthropic / claude-sonnet-4-6 / 낮음(low)\n독립 품질 평가(Judge): Anthropic / claude-sonnet-5 / 낮음(low)",
 }
 
 
@@ -67,7 +67,7 @@ class TestTab(tk.Frame):
                     "실험군: " + self.command[-1] + "\n"
                     "대표 케이스: TC-01, TC-02\n"
                     "예상 외부 AI 호출: 케이스당 최대 7회, 총 최대 14회\n"
-                    "실제 API 테스트를 실행할까요?"
+                    "실제 외부 AI 연결 시험(API)을 실행할까요?"
                 )
             if not messagebox.askyesno("실행 전 확인", message):
                 return
@@ -105,7 +105,7 @@ class TestTab(tk.Frame):
 class QAControl(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("AllStar QA Control Center")
+        self.title("AllStar 품질검사 관리")
         self.geometry("1320x800")
         self.minsize(1050, 650)
         style = ttk.Style(self)
@@ -116,8 +116,8 @@ class QAControl(tk.Tk):
         top.pack(fill="both", expand=True)
         ai = tk.Frame(top, bg="#202634")
         voc = tk.Frame(top, bg="#202634")
-        top.add(ai, text="AI Agent QA")
-        top.add(voc, text="VOC QA")
+        top.add(ai, text="AI 상담 품질검사 (AI Agent QA)")
+        top.add(voc, text="고객 의견 분석 품질검사 (VOC QA)")
 
         ai_tabs = ttk.Notebook(ai)
         ai_tabs.pack(fill="both", expand=True, padx=8, pady=8)
@@ -138,7 +138,7 @@ class QAControl(tk.Tk):
         voc_tabs.add(TestTab(voc_tabs, "단위 테스트", [PY, "-u", "-m", "pytest", "tests/voc/evaluation/test_agent_unit.py", "tests/voc/evaluation/test_llm_judge.py", "-v"]), text="단위 테스트")
         for profile_id in "ABCD":
             command = [PY, "-u", "tools/scripts/run_voc_profile.py", "--profile", profile_id]
-            detail = PROFILE_LABELS[profile_id] + "\n대표 케이스 2건만 실행합니다. thinking=disabled"
+            detail = PROFILE_LABELS[profile_id] + "\n대표 사례 2건만 실행합니다. 확장 사고 기능: 사용 안 함(thinking=disabled)"
             voc_tabs.add(TestTab(voc_tabs, f"{profile_id} 테스트", command, True, detail), text=f"{profile_id} 테스트")
 
 
@@ -147,4 +147,4 @@ if __name__ == "__main__":
         QAControl().mainloop()
     except Exception as error:
         (LOG_DIR / "qa_control_launcher.log").write_text(str(error), encoding="utf-8")
-        messagebox.showerror("QA Control 시작 실패", str(error))
+        messagebox.showerror("품질검사 관리 시작 실패", str(error))

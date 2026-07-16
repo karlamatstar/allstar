@@ -8,7 +8,7 @@ import streamlit as st
 
 
 
-st.set_page_config(page_title="AllStar AI + VOC", page_icon="⭐", layout="wide")
+st.set_page_config(page_title="AllStar 통합 상담·고객 의견 분석", page_icon="⭐", layout="wide")
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
 VOC_API = os.getenv("VOC_API_URL", "http://localhost:8100")
 GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000")
@@ -40,25 +40,35 @@ def profile_text(profile: dict) -> str:
     judge = profile["judge"]
     return (
         f"{profile['profile_id']} · {profile['title']}\n"
-        f"생성 {generation['provider']} / {generation['model']} / {generation['reasoning']}\n"
-        f"평가 {judge['provider']} / {judge['model']} / {judge['reasoning']}"
+        f"답변 생성 {generation['provider']} / {generation['model']} / {reasoning_text(generation['reasoning'])}\n"
+        f"독립 품질 평가(Judge) {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}"
     )
 
 
+def reasoning_text(value: str) -> str:
+    labels = {
+        "none": "추론 끔(none)",
+        "low": "낮음(low)",
+        "medium": "중간(medium)",
+        "high": "높음(high)",
+    }
+    return labels.get(value, value)
+
+
 st.title("⭐ AllStar 통합 AI 품질 포트폴리오")
-st.caption("AI Agent와 VOC 멀티 에이전트를 한 화면에서 실행하고 품질 결과를 확인합니다.")
+st.caption("AI 상담 에이전트(AI Agent)와 고객 의견 분석(VOC)을 한 화면에서 실행하고 품질 결과를 확인합니다.")
 
 tab_ai, tab_voc, tab_reports, tab_monitoring = st.tabs(
-    ["AI Agent 챗봇", "VOC 챗봇", "통합 리포트", "통합 모니터링"]
+    ["AI 상담 챗봇 (AI Agent)", "고객 의견 분석 (VOC)", "통합 결과 보고서 (Report)", "통합 상태 확인 (Monitoring)"]
 )
 
 with tab_ai:
-    st.subheader("AI Agent 챗봇")
-    st.caption("기존 포트폴리오 API(:8000)를 사용합니다.")
+    st.subheader("AI 상담 챗봇 (AI Agent)")
+    st.caption("AI 상담 서버와 연결되는 프로그램 통로(API, :8000)를 사용합니다.")
     for message in st.session_state.setdefault("ai_history", []):
         with st.chat_message(message["role"]):
             st.write(message["content"])
-    if question := st.chat_input("AI Agent에게 질문하세요", key="ai_question"):
+    if question := st.chat_input("AI 상담 에이전트에게 질문하세요", key="ai_question"):
         st.session_state.ai_history.append({"role": "user", "content": question})
         try:
             with httpx.Client(timeout=TIMEOUT) as client:
@@ -67,13 +77,13 @@ with tab_ai:
                 body = response.json()
             answer = body.get("answer", "응답이 없습니다.")
         except Exception as error:
-            answer = f"AI Agent API 연결 실패: {error}"
+            answer = f"AI 상담 서버(API) 연결 실패: {error}"
         st.session_state.ai_history.append({"role": "assistant", "content": answer})
         st.rerun()
 
 with tab_voc:
-    st.subheader("VOC 단발 질문 챗봇")
-    st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델의 조합입니다. 선택은 현재 질문 1건에만 적용됩니다.")
+    st.subheader("고객 의견 분석(VOC) 단발 질문")
+    st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델(Judge)의 조합입니다. 선택은 현재 질문 1건에만 적용됩니다.")
     profiles = get_json(f"{VOC_API}/profiles") or []
     pending = st.session_state.get("voc_pending")
     selected = st.session_state.setdefault("voc_profile", "A")
@@ -88,8 +98,8 @@ with tab_voc:
                     f"<div class='profile-card'><div class='profile-title'>"
                     f"{profile['profile_id']} · {profile['title']}</div>"
                     f"<div>{profile['summary']}</div><hr>"
-                    f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / {generation['reasoning']}<br>"
-                    f"품질 평가: {judge['provider']} / {judge['model']} / {judge['reasoning']}</div></div>",
+                    f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / 추론 강도 {reasoning_text(generation['reasoning'])}<br>"
+                    f"독립 품질 평가(Judge): {judge['provider']} / {judge['model']} / 추론 강도 {reasoning_text(judge['reasoning'])}</div></div>",
                     unsafe_allow_html=True,
                 )
                 if st.button(
@@ -103,7 +113,7 @@ with tab_voc:
                 if not profile.get("available", True):
                     st.caption("필수 키 설정 필요: " + ", ".join(profile.get("missing_keys", [])))
     else:
-        st.warning("VOC API에 연결할 수 없습니다. Server Control Center에서 VOC 서비스를 시작하세요.")
+        st.warning("고객 의견 분석 서버(VOC API)에 연결할 수 없습니다. 'AllStar 서버 관리'에서 해당 서비스를 시작하세요.")
 
     st.markdown(f"현재 선택: **{st.session_state.voc_profile}**")
     for message in st.session_state.setdefault("voc_history", []):
@@ -115,7 +125,15 @@ with tab_voc:
     if pending:
         status = get_json(f"{VOC_API}/chat/{pending}/status")
         if status:
-            stages = ["① 의도 분석", "② VOC 검색", "③ 요약", "④ 평가", "⑤ 비판", "⑥ 최종 개선", "⑦ LLM Judge"]
+            stages = [
+                "① 질문 의도 분석 (Interpreter)",
+                "② 관련 의견 검색 (Retriever)",
+                "③ 내용 요약 (Summarizer)",
+                "④ 초기 품질 평가 (Evaluator)",
+                "⑤ 결과 검토 (Critic)",
+                "⑥ 최종 답변 개선 (Improver)",
+                "⑦ 독립 품질 평가 (LLM Judge)",
+            ]
             cols = st.columns(7)
             terminal = status["status"] in {"completed", "failed"}
             for col, name in zip(cols, stages):
@@ -132,7 +150,7 @@ with tab_voc:
                     judge_result = status.get("judge") or {}
                     meta = (
                         f"프로필 {status['profile_id']} · {status['elapsed_seconds']:.1f}초 · "
-                        f"Judge {judge_result.get('total', 'N/A')} / {judge_result.get('verdict', 'N/A')}"
+                        f"독립 평가(Judge) {judge_result.get('total', 'N/A')} / 판정 {judge_result.get('verdict', 'N/A')}"
                     )
                 else:
                     answer = f"처리 실패: {status.get('error', '원인 없음')}"
@@ -143,7 +161,7 @@ with tab_voc:
             time.sleep(1)
             st.rerun()
 
-    if question := st.chat_input("VOC 관련 단발 질문을 입력하세요", key="voc_question", disabled=bool(pending)):
+    if question := st.chat_input("고객 의견(VOC) 관련 단발 질문을 입력하세요", key="voc_question", disabled=bool(pending)):
         st.session_state.voc_history.append({"role": "user", "content": question})
         try:
             with httpx.Client(timeout=10.0) as client:
@@ -154,12 +172,12 @@ with tab_voc:
                 response.raise_for_status()
                 st.session_state.voc_pending = response.json()["request_id"]
         except Exception as error:
-            st.session_state.voc_history.append({"role": "assistant", "content": f"VOC 요청 실패: {error}"})
+            st.session_state.voc_history.append({"role": "assistant", "content": f"고객 의견 분석(VOC) 요청 실패: {error}"})
         st.rerun()
 
 with tab_reports:
-    st.subheader("통합 리포트")
-    if st.button("VOC 실시간 리포트 생성"):
+    st.subheader("통합 결과 보고서 (Report)")
+    if st.button("고객 의견 분석(VOC) 실시간 보고서 생성"):
         try:
             with httpx.Client(timeout=15.0) as client:
                 response = client.post(f"{VOC_API}/reports/live/generate")
@@ -171,8 +189,9 @@ with tab_reports:
     st.caption("실시간 챗봇 로그와 테스트케이스·교차검증 리포트는 서로 분리해 저장됩니다.")
 
 with tab_monitoring:
-    st.subheader("통합 모니터링")
-    st.link_button("Grafana 열기", GRAFANA)
-    st.link_button("Prometheus 열기", "http://localhost:9090")
-    st.link_button("Portfolio Swagger", f"{PORTFOLIO_API}/docs")
-    st.link_button("VOC Swagger", f"{VOC_API}/docs")
+    st.subheader("통합 상태 확인 (Monitoring)")
+    st.caption("운영 그래프, 상태 수집 정보, 서버 기능 명세를 각각 확인할 수 있습니다.")
+    st.link_button("운영 상태 화면 열기 (Grafana)", GRAFANA)
+    st.link_button("상태 정보 수집 화면 열기 (Prometheus)", "http://localhost:9090")
+    st.link_button("AI 상담 서버 기능 명세 열기 (Portfolio Swagger)", f"{PORTFOLIO_API}/docs")
+    st.link_button("고객 의견 분석 서버 기능 명세 열기 (VOC Swagger)", f"{VOC_API}/docs")

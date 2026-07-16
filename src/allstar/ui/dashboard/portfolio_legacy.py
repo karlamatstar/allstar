@@ -31,9 +31,9 @@ DIM_LABELS = {
     "safety_score": "안전성", "understandability_score": "이해가능성",
 }
 SCORE_COLS = list(DIM_LABELS.keys())
-MODEL_LABELS = {"rule_based": "규칙 기반", "api_based": "API 기반"}       # 배치 리포트(evaluation_result.csv)용
-LIVE_MODEL_LABELS = {"rule": "규칙 기반", "api": "API 기반"}              # 실시간 리포트(live_report.csv)용
-MODEL_COLORS = {"규칙 기반": "#8b5cf6", "API 기반": "#2563eb"}
+MODEL_LABELS = {"rule_based": "규칙 기반", "api_based": "서버 연결 방식(API)"}       # 배치 리포트(evaluation_result.csv)용
+LIVE_MODEL_LABELS = {"rule": "규칙 기반", "api": "서버 연결 방식(API)"}              # 실시간 리포트(live_report.csv)용
+MODEL_COLORS = {"규칙 기반": "#8b5cf6", "서버 연결 방식(API)": "#2563eb"}
 CHART_FONT = dict(family="Pretendard, Inter, 'Malgun Gothic', sans-serif", size=15, color="#334155")
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -296,7 +296,7 @@ def batch_test_dialog(n_cases: int) -> None:
     if stage == "confirm":
         st.warning(
             f"케이스 **{n_cases}건 × 2모델**을 평가합니다.\n\n"
-            f"- 실제 OpenAI API 호출: 에이전트 답변 {n_cases}회 + AI Judge 채점 {n_cases * 2}회 (비용 발생)\n"
+            f"- 실제 OpenAI 연결(API) 호출: 에이전트 답변 {n_cases}회 + AI 독립 평가자(Judge) 채점 {n_cases * 2}회 (비용 발생)\n"
             f"- 실행 중에는 대시보드 전체가 잠깁니다 (수십 초 ~ 수 분 소요)"
         )
         col_ok, col_cancel = st.columns(2)
@@ -330,7 +330,7 @@ def batch_test_dialog(n_cases: int) -> None:
             result = evaluate_case(tc)
             results.append(result)
             log_lines.append(f"[{tc['case_id']}] 규칙 기반: {format_score_line(result['rule_based']['evaluation'])}")
-            log_lines.append(f"[{tc['case_id']}] API 기반: {format_score_line(result['api_based']['evaluation'])}")
+            log_lines.append(f"[{tc['case_id']}] 서버 연결 방식(API): {format_score_line(result['api_based']['evaluation'])}")
 
         progress.info("리포트 생성 중... (CSV/JSON/MD)")
         generate_all(results, PIPELINE_REPORTS_DIR, timestamp)
@@ -385,9 +385,9 @@ def kpi_row(model_df: pd.DataFrame, label: str, not_scored_label: str = "N/A") -
     section_title(label, MODEL_COLORS.get(label, "#2b6cb0"))
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.markdown(metric_card("📁", "건수", total, "neutral"), unsafe_allow_html=True)
-    c2.markdown(metric_card("🟢", "PASS", pass_count, "pass"), unsafe_allow_html=True)
-    c3.markdown(metric_card("🟡", "REVIEW", review_count, "review"), unsafe_allow_html=True)
-    c4.markdown(metric_card("🔴", "FAIL", fail_count, "fail"), unsafe_allow_html=True)
+    c2.markdown(metric_card("🟢", "통과(PASS)", pass_count, "pass"), unsafe_allow_html=True)
+    c3.markdown(metric_card("🟡", "검토 필요(REVIEW)", review_count, "review"), unsafe_allow_html=True)
+    c4.markdown(metric_card("🔴", "실패(FAIL)", fail_count, "fail"), unsafe_allow_html=True)
     c5.markdown(metric_card("⚪", not_scored_label, na_count, "neutral"), unsafe_allow_html=True)
     c6.markdown(metric_card("⭐", "평균점수", f"{avg_total}/25", "neutral"), unsafe_allow_html=True)
 
@@ -457,22 +457,22 @@ def render_ops_monitoring() -> None:
         "?orgId=1&from=now-6h&to=now&refresh=5s&theme=light&kiosk"
     )
 
-    section_title("Grafana 운영 모니터링", "#2563eb")
+    section_title("운영 상태 확인 (Grafana)", "#2563eb")
     st.caption(
-        "Grafana 원본 대시보드를 밝은 테마로 표시합니다. "
-        "챗봇 운영 지표와 k6 성능 테스트 지표를 탭으로 나누어 확인합니다."
+        "운영 지표 시각화 도구(Grafana)의 원본 화면을 밝은 테마로 표시합니다. "
+        "챗봇 운영 지표와 부하 시험 도구(k6)의 성능 지표를 탭으로 나누어 확인합니다."
     )
 
-    grafana_chat_tab, grafana_k6_tab = st.tabs(["실시간 모니터링 챗봇", "K6 Performance Test"])
+    grafana_chat_tab, grafana_k6_tab = st.tabs(["챗봇 실시간 상태", "성능 부하 시험 (k6)"])
     with grafana_chat_tab:
-        st.link_button("챗봇 Grafana 새 창에서 열기", chatbot_grafana_url)
+        st.link_button("챗봇 운영 상태 화면(Grafana) 새 창에서 열기", chatbot_grafana_url)
         st.iframe(chatbot_grafana_url, height=1200)
     with grafana_k6_tab:
         st.info(
-            "k6 그래프는 k6 실행 중 또는 실행 후 Prometheus에 `k6_*` 지표가 들어와야 표시됩니다. "
-            "데이터가 비어 있으면 K6_Test_Launcher 또는 `k6 run`으로 테스트를 한 번 실행하세요."
+            "부하 시험(k6) 그래프는 시험 실행 중 또는 실행 후 상태 정보 수집 도구(Prometheus)에 `k6_*` 지표가 들어와야 표시됩니다. "
+            "데이터가 비어 있으면 k6 시험 실행기(K6_Test_Launcher) 또는 `k6 run`으로 시험을 한 번 실행하세요."
         )
-        st.link_button("K6 Grafana 새 창에서 열기", k6_grafana_url)
+        st.link_button("부하 시험 운영 화면(k6 Grafana) 새 창에서 열기", k6_grafana_url)
         st.iframe(k6_grafana_url, height=920)
 
 
@@ -483,7 +483,7 @@ conv_df = load_jsonl(CONVERSATIONS_LOG)
 report_is_stale = is_live_report_stale(conv_df, live_df)
 
 top_tab_live, top_tab_grafana, top_tab_report, top_tab_testcase = st.tabs(
-    ["🔴 실시간 챗봇", "📈 Grafana", "📄 종합 리포트", "🧪 테스트케이스 사용"]
+    ["🔴 실시간 챗봇", "📈 운영 상태 (Grafana)", "📄 종합 보고서 (Report)", "🧪 시험 사례 사용 (Test Case)"]
 )
 
 # =============================================================================
@@ -506,7 +506,7 @@ with top_tab_live:
             st.session_state.server_down = False
 
         if st.session_state.server_down:
-            st.error("🚨 **챗봇 서버가 다운되었습니다! (502 Bad Gateway)**\n\n내부 서버 오류로 인해 현재 챗봇과 연결할 수 없습니다. 시스템을 복구하려면 아래 재접속 버튼을 눌러주세요.")
+            st.error("🚨 **챗봇 서버가 중단되었습니다! (502 Bad Gateway)**\n\n내부 서버 오류로 인해 현재 챗봇과 연결할 수 없습니다. 시스템을 복구하려면 아래 재접속 버튼을 눌러주세요.")
             if st.button("🔄 서버 재접속 (서버 켜기)", type="primary", width="stretch"):
                 with st.spinner("서버를 다시 시작하는 중... (포트 연결 대기)"):
                     import subprocess
@@ -559,7 +559,7 @@ with top_tab_live:
 
                 now_str = pd.Timestamp.now().strftime("%H:%M")
                 st.session_state.chat_history.append({
-                    "role": "bot_api", "content": answer, "time": now_str, "label": "🤖 API 기반",
+                    "role": "bot_api", "content": answer, "time": now_str, "label": "🤖 서버 연결 방식(API)",
                 })
                 if rule_answer:
                     st.session_state.chat_history.append({
@@ -612,12 +612,12 @@ with top_tab_live:
             eval_df["total_score"] = eval_df["evaluation"].apply(lambda e: e.get("total_score"))
             if "model" not in eval_df.columns:
                 eval_df["model"] = "api"  # 비교 채점 도입 전 기록은 API 기반 단일 채점
-            eval_df["모델"] = eval_df["model"].map({"api": "API 기반", "rule": "규칙 기반"}).fillna(eval_df["model"])
+            eval_df["모델"] = eval_df["model"].map({"api": "서버 연결 방식(API)", "rule": "규칙 기반"}).fillna(eval_df["model"])
 
         # ---- 대화 로그 원문 ----
         section_title("대화 로그")
         if conv_df.empty:
-            st.info("아직 대화 로그가 없습니다. FastAPI 서버에 /chat 요청이 들어오면 여기 표시됩니다.")
+            st.info("아직 대화 기록(Log)이 없습니다. 웹 연결 서버(FastAPI)에 `/chat` 요청이 들어오면 여기 표시됩니다.")
         else:
             st.dataframe(
                 with_kst_timestamp(conv_df.sort_values("timestamp", ascending=False)),
@@ -733,7 +733,7 @@ with top_tab_live:
             live_scored["overall_decision"] = live_scored["overall_decision"].replace("N/A", "FAIL")
             col1, col2 = st.columns(2)
             with col1:
-                section_title("모델별 항목 평균 점수 (규칙 vs API)")
+                section_title("모델별 항목 평균 점수 (규칙 기반 vs 서버 연결 방식(API))")
                 if live_scored.empty:
                     st.info("채점된 대화가 없습니다 (전부 미채점).")
                 else:
@@ -802,13 +802,21 @@ with top_tab_testcase, st.container(key="testcase_subtabs"):
         existing_ids = {c["case_id"] for c in cases}
         with st.form("add_case_form", clear_on_submit=True):
             fc1, fc2, fc3 = st.columns(3)
-            new_case_id = fc1.text_input("케이스 ID", value=suggest_next_case_id(cases))
+            new_case_id = fc1.text_input("사례 식별자 (Case ID)", value=suggest_next_case_id(cases))
             new_category = fc2.text_input("카테고리", placeholder="정확성 / 출결 / 수료 / 안전성 ...")
-            new_test_type = fc3.selectbox("유형", ["Happy", "Edge", "Negative"])
+            new_test_type = fc3.selectbox(
+                "시험 유형",
+                ["Happy", "Edge", "Negative"],
+                format_func=lambda value: {
+                    "Happy": "정상 상황(Happy)",
+                    "Edge": "경계 상황(Edge)",
+                    "Negative": "오류·거부 상황(Negative)",
+                }[value],
+            )
             new_question = st.text_input("사용자 질문")
             fc4, fc5 = st.columns(2)
             new_keyword = fc4.text_input("기대 키워드 (규칙 검증에 사용)")
-            new_policy = fc5.text_input("기대 정책 (AI Judge 채점 기준에 사용)")
+            new_policy = fc5.text_input("기대 정책 (AI 독립 평가자(Judge)의 채점 기준에 사용)")
             submitted = st.form_submit_button("💾 케이스 저장", type="primary")
 
         if submitted:
@@ -849,8 +857,8 @@ with top_tab_testcase, st.container(key="testcase_subtabs"):
         st.divider()
         section_title("배치 테스트 실행", "#c0392b")
         st.caption(
-            f"현재 케이스 {len(cases)}건 × 2모델(규칙기반/API기반) — "
-            f"실제 OpenAI 호출: 에이전트 답변 {len(cases)}회 + AI Judge 채점 {len(cases) * 2}회"
+            f"현재 사례 {len(cases)}건 × 2모델(규칙 기반/서버 연결 방식(API)) — "
+            f"실제 OpenAI 호출: 에이전트 답변 {len(cases)}회 + AI 독립 평가자(Judge) 채점 {len(cases) * 2}회"
         )
 
         if st.session_state.get("last_run_error"):
@@ -897,7 +905,7 @@ with top_tab_testcase, st.container(key="testcase_subtabs"):
             scored["overall_decision"] = scored["overall_decision"].replace("N/A", "FAIL")
             col1, col2 = st.columns(2)
             with col1:
-                section_title("모델별 항목 평균 점수 (규칙 vs API)")
+                section_title("모델별 항목 평균 점수 (규칙 기반 vs 서버 연결 방식(API))")
                 if scored.empty:
                     st.info("채점된 케이스가 없습니다 (전부 N/A).")
                 else:
@@ -985,7 +993,7 @@ with top_tab_report:
         if PERFORMANCE_REPORT_MD_PATH.exists():
             st.markdown(PERFORMANCE_REPORT_MD_PATH.read_text(encoding="utf-8"), unsafe_allow_html=True)
         else:
-            st.info("아직 성능 테스트 리포트가 없습니다. GUI 런처(test_launcher.py)의 'API 종합 성능 테스트' 탭에서 실행하세요.")
+            st.info("아직 성능 시험 보고서가 없습니다. 품질검사 관리 GUI의 '서버 연결 성능 종합 시험(API)' 탭에서 실행하세요.")
 
     with report_testcase_tab:
         if REPORT_MD_PATH.exists():

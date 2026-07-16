@@ -27,11 +27,11 @@
 - `/profiles`, `/health`, `/agents/health`, `/metrics`
 - 대화·Judge JSONL 로그 분리 저장
 - A~D 설명과 질문별 프로필을 포함하는 VOC 실시간 Markdown 리포트
-- Streamlit 통합 화면의 AI Agent·VOC·리포트·모니터링 영역
+- Streamlit 통합 화면의 AI 상담(AI Agent)·고객 의견 분석(VOC)·결과 보고서(Report)·상태 확인(Monitoring) 영역
 - VOC 챗봇 A~D 카드와 실제 모델·추론 설정 표시
 - Docker Compose의 Portfolio API, VOC API, VOC 에이전트 6개, Prometheus, Grafana
-- Windows 호스트 Streamlit을 함께 제어하는 Server Control Center
-- AI Agent QA 8개 구분과 VOC QA를 제공하는 QA Control Center
+- Windows 호스트 통합 화면(Streamlit)을 함께 제어하는 서버 관리(Server Control Center)
+- AI 상담 품질검사 8개 구분과 고객 의견 분석 품질검사를 제공하는 품질검사 관리(QA Control Center)
 - `.bat` 및 숨김 실행용 `.vbs` 런처
 
 ### 부분 구현
@@ -60,6 +60,26 @@
 - Judge 실패 시 생성 답변은 유지하고 점수는 N/A로 남긴다.
 - 챗봇 질문은 단발이며 이전 대화를 다음 모델 입력에 전달하지 않는다.
 - 프로필 전체 스냅샷을 질문 로그와 Judge 로그에 저장한다.
+
+### 화면 용어 표기 원칙
+
+- GUI와 대시보드는 쉬운 한국어를 먼저 표시하고, 원래 전문용어는 괄호 안에 함께 적는다.
+- 서비스 ID, API 경로, 환경변수, 모델명처럼 프로그램 동작에 필요한 내부 값은 변경하지 않는다.
+- 모델 설정은 `답변 생성`, `독립 품질 평가(Judge)`, `추론 강도` 순서로 표시한다.
+- 추론 설정은 `추론 끔(none)`, `낮음(low)`, `중간(medium)`, `높음(high)`처럼 한국어와 원래 값을 함께 표시한다.
+- 주요 화면 용어는 다음 기준을 사용한다.
+
+| 쉬운 화면 표기 | 원래 전문용어 | 뜻 |
+|---|---|---|
+| AI 상담 에이전트 | AI Agent | 사용자의 질문에 답변하는 기능 |
+| 고객 의견 분석 | VOC | 고객의 소리와 의견을 검색·분석하는 기능 |
+| 프로그램 연결 통로 | API | 화면과 서버가 데이터를 주고받는 연결 방식 |
+| 독립 품질 평가 | Judge | 생성된 답변을 별도 모델이 채점하는 단계 |
+| 통합 화면 | Streamlit | 챗봇·보고서·상태를 보는 웹 화면 |
+| 서버 기능 명세 | Swagger | 서버가 제공하는 기능과 요청 형식을 확인하는 화면 |
+| 운영 상태 화면 | Grafana | 수집된 운영 지표를 그래프로 보는 화면 |
+| 상태 정보 수집 | Prometheus | 서버 상태와 성능 수치를 모으는 도구 |
+| 실행 기록 | Log | 서비스 실행 과정과 오류를 남긴 기록 |
 
 ## 3. 실행 구조
 
@@ -146,6 +166,15 @@ _OUTPUT/reports/performance/
 - Docker 서비스 10개 기동, API·Prometheus·Grafana Health `200`, VOC 에이전트 6개 `ready=true` 확인
 - Windows 호스트 Streamlit `/_stcore/health` 응답 `200 ok` 확인
 - 실제 OpenAI·Anthropic 호출은 실행하지 않음
+
+### 화면 용어 한국어화 후 추가 검증
+
+- 검증일: 2026-07-16
+- 대상: 서버 관리 GUI, 품질검사 관리 GUI, 통합 Streamlit 화면, 기존 포트폴리오 대시보드
+- `src`, `tools`, `tests` 전체 Python 문법 검사 통과
+- 화면 용어 전용 통합 테스트를 포함한 `tests/integration` 13개 통과
+- 실제 외부 AI 호출 테스트를 제외한 비AI 회귀 테스트 104개 통과, 2개 선택 제외
+- 내부 서비스 ID, API 경로, 모델명은 변경하지 않음
 
 ### 디렉터리 정렬 검증 참고
 

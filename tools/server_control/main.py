@@ -20,17 +20,17 @@ LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 SERVICES = [
-    ("Portfolio API", "portfolio-api", 8000, "http://localhost:8000/docs", "docker"),
-    ("Streamlit", "streamlit", 8501, "http://localhost:8501", "host"),
-    ("VOC API", "voc-api", 8100, "http://localhost:8100/docs", "docker"),
-    ("Interpreter", "voc-interpreter", 6001, None, "docker"),
-    ("Retriever", "voc-retriever", 6002, None, "docker"),
-    ("Summarizer", "voc-summarizer", 6003, None, "docker"),
-    ("Evaluator", "voc-evaluator", 6004, None, "docker"),
-    ("Critic", "voc-critic", 6005, None, "docker"),
-    ("Improver", "voc-improver", 6006, None, "docker"),
-    ("Prometheus", "prometheus", 9090, "http://localhost:9090", "docker"),
-    ("Grafana", "grafana", 3000, "http://localhost:3000", "docker"),
+    ("AI 상담 서버 (Portfolio API)", "portfolio-api", 8000, "http://localhost:8000/docs", "docker"),
+    ("통합 화면 (Streamlit)", "streamlit", 8501, "http://localhost:8501", "host"),
+    ("고객 의견 분석 서버 (VOC API)", "voc-api", 8100, "http://localhost:8100/docs", "docker"),
+    ("질문 의도 분석 (Interpreter)", "voc-interpreter", 6001, None, "docker"),
+    ("관련 의견 검색 (Retriever)", "voc-retriever", 6002, None, "docker"),
+    ("내용 요약 (Summarizer)", "voc-summarizer", 6003, None, "docker"),
+    ("초기 품질 평가 (Evaluator)", "voc-evaluator", 6004, None, "docker"),
+    ("결과 검토 (Critic)", "voc-critic", 6005, None, "docker"),
+    ("최종 답변 개선 (Improver)", "voc-improver", 6006, None, "docker"),
+    ("상태 정보 수집 (Prometheus)", "prometheus", 9090, "http://localhost:9090", "docker"),
+    ("운영 상태 화면 (Grafana)", "grafana", 3000, "http://localhost:3000", "docker"),
 ]
 
 
@@ -45,7 +45,7 @@ def port_open(port: int) -> bool:
 class ServerControl(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("AllStar Server Control Center")
+        self.title("AllStar 서버 관리")
         self.geometry("1280x760")
         self.minsize(1000, 620)
         self.configure(bg="#151923")
@@ -68,7 +68,7 @@ class ServerControl(tk.Tk):
     def _build(self):
         top = tk.Frame(self, bg="#151923")
         top.pack(fill="x", padx=14, pady=12)
-        tk.Label(top, text="⭐ AllStar Server Control Center", bg="#151923", fg="#d9e7ff",
+        tk.Label(top, text="⭐ AllStar 서버 관리 (Server Control Center)", bg="#151923", fg="#d9e7ff",
                  font=("Malgun Gothic", 15, "bold")).pack(side="left")
         self._button(top, "전체 시작", self.start_all, "#26734d").pack(side="right", padx=4)
         self._button(top, "전체 종료", self.stop_all, "#8a3142").pack(side="right", padx=4)
@@ -81,7 +81,7 @@ class ServerControl(tk.Tk):
         body.add(left, minsize=360)
         body.add(right, minsize=550)
 
-        tk.Label(left, text="서비스", bg="#202634", fg="#a9b8d0",
+        tk.Label(left, text="실행 서비스", bg="#202634", fg="#a9b8d0",
                  font=("Malgun Gothic", 10, "bold")).pack(anchor="w", padx=12, pady=10)
         for name, key, port, _, _ in SERVICES:
             frame = tk.Frame(left, bg="#202634")
@@ -103,7 +103,7 @@ class ServerControl(tk.Tk):
         self._button(controls, "개별 종료", self.stop_selected, "#8a3142").pack(side="left", padx=3)
         self._button(controls, "접속", self.open_selected).pack(side="left", padx=3)
 
-        tk.Label(right, text="선택 서비스 로그", bg="#202634", fg="#a9b8d0",
+        tk.Label(right, text="선택 서비스 실행 기록 (Log)", bg="#202634", fg="#a9b8d0",
                  font=("Malgun Gothic", 10, "bold")).pack(anchor="w", padx=12, pady=10)
         self.log = tk.Text(right, bg="#0f131c", fg="#d8e1ef", insertbackground="white",
                            font=("Consolas", 9), relief="flat", wrap="word")
@@ -223,4 +223,4 @@ if __name__ == "__main__":
     except Exception as error:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         (LOG_DIR / "server_control_launcher.log").write_text(str(error), encoding="utf-8")
-        messagebox.showerror("Server Control 시작 실패", str(error))
+        messagebox.showerror("서버 관리 시작 실패", str(error))
