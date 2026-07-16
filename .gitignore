@@ -6,6 +6,7 @@ __pycache__/
 .ruff_cache/
 
 logs/**/*.jsonl
+logs/**/*.json
 logs/**/*.log
 logs/**/*.pid
 quality/reports/**/*.csv

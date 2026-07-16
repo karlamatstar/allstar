@@ -11,7 +11,7 @@ import plotly.express as px
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from quality.live_report_generator import KST, format_period, to_kst
+from ai_quality.live_report_generator import KST, format_period, to_kst
 
 st.set_page_config(
     page_title="AI 에이전트 품질 대시보드",
@@ -39,18 +39,18 @@ CHART_FONT = dict(family="Pretendard, Inter, 'Malgun Gothic', sans-serif", size=
 
 BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
-TEST_CASES_PATH = PROJECT_ROOT / "quality" / "test_cases.json"
-REPORTS_DIR = PROJECT_ROOT / "quality" / "reports"
+TEST_CASES_PATH = PROJECT_ROOT / "ai_quality" / "test_cases.json"
+REPORTS_DIR = PROJECT_ROOT / "quality" / "reports" / "ai_agent" / "batch"
+LIVE_REPORTS_DIR = PROJECT_ROOT / "quality" / "reports" / "ai_agent" / "live"
 CSV_PATH = REPORTS_DIR / "evaluation_result.csv"
-LIVE_CSV_PATH = REPORTS_DIR / "live_report.csv"
-REPORT_MD_PATH = PROJECT_ROOT / "docs" / "final_quality_report.md"
-LIVE_REPORT_MD_PATH = PROJECT_ROOT / "docs" / "live_quality_report.md"
-VALIDATION_REPORT_MD_PATH = REPORTS_DIR / "defects" / "chaos" / "defect_report.md"  # scripts/run_validation_tests.py 생성
-PERFORMANCE_REPORT_MD_PATH = PROJECT_ROOT / "performance" / "results" / "performance_report.md"  # scripts/run_performance_tests.py 생성
-LIVE_LOG_DIR = REPORTS_DIR / "live_log"        # 챗봇 대화/채점 원본 로그
-TESTCASE_LOG_DIR = REPORTS_DIR / "testcase_log"  # 배치 실행 로그·이력본
-CONVERSATIONS_LOG = LIVE_LOG_DIR / "conversations.jsonl"
-LIVE_EVAL_LOG = LIVE_LOG_DIR / "live_evaluations.jsonl"
+LIVE_CSV_PATH = LIVE_REPORTS_DIR / "live_report.csv"
+REPORT_MD_PATH = REPORTS_DIR / "final_quality_report.md"
+LIVE_REPORT_MD_PATH = LIVE_REPORTS_DIR / "live_report.md"
+VALIDATION_REPORT_MD_PATH = PROJECT_ROOT / "quality" / "reports" / "defects" / "chaos" / "defect_report.md"  # scripts/run_validation_tests.py 생성
+PERFORMANCE_REPORT_MD_PATH = PROJECT_ROOT / "quality" / "reports" / "performance" / "performance_report.md"  # scripts/run_performance_tests.py 생성
+TESTCASE_LOG_DIR = PROJECT_ROOT / "logs" / "ai_agent" / "testcase"
+CONVERSATIONS_LOG = PROJECT_ROOT / "logs" / "ai_agent" / "live" / "conversations" / "conversations.jsonl"
+LIVE_EVAL_LOG = PROJECT_ROOT / "logs" / "ai_agent" / "live" / "judgments" / "live_evaluations.jsonl"
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 GRAFANA_BASE_URL = os.environ.get("GRAFANA_BASE_URL", "http://localhost:3000")
@@ -314,11 +314,11 @@ def batch_test_dialog(n_cases: int) -> None:
     progress = st.empty()
     progress.info("준비 중...")
     try:
-        from quality.quality_pipeline import (
-            DOCS_DIR, REPORTS_DIR as PIPELINE_REPORTS_DIR, TEST_CASE_FILE,
+        from ai_quality.quality_pipeline import (
+            REPORTS_DIR as PIPELINE_REPORTS_DIR, TEST_CASE_FILE,
             evaluate_case, format_score_line, load_test_cases,
         )
-        from quality.report_generator import generate_all
+        from ai_quality.report_generator import generate_all
         from app.config import validate_config
 
         validate_config()
@@ -335,7 +335,7 @@ def batch_test_dialog(n_cases: int) -> None:
             log_lines.append(f"[{tc['case_id']}] API 기반: {format_score_line(result['api_based']['evaluation'])}")
 
         progress.info("리포트 생성 중... (CSV/JSON/MD)")
-        generate_all(results, PIPELINE_REPORTS_DIR, DOCS_DIR, timestamp)
+        generate_all(results, PIPELINE_REPORTS_DIR, timestamp)
 
         TESTCASE_LOG_DIR.mkdir(parents=True, exist_ok=True)
         run_log_path = TESTCASE_LOG_DIR / f"pipeline_{timestamp}.log"
@@ -360,7 +360,7 @@ if st.session_state.get("batch_dialog_stage"):
 
 st.markdown(
     '<div class="dash-banner"><h1>✅ AI 에이전트 품질 대시보드</h1>'
-    '<p class="db-sub">배치 회귀 테스트(quality/test_cases.json) 결과와 실시간 사용자 대화 로그를 함께 확인합니다.</p></div>',
+    '<p class="db-sub">배치 회귀 테스트(ai_quality/test_cases.json) 결과와 실시간 사용자 대화 로그를 함께 확인합니다.</p></div>',
     unsafe_allow_html=True,
 )
 
@@ -411,7 +411,7 @@ def is_live_report_stale(conv_df: pd.DataFrame, live_report_df: pd.DataFrame | N
 
 
 def _generate_live_report_and_rerun() -> None:
-    from quality.live_report_generator import NoLiveLogsError, generate_live_report
+    from ai_quality.live_report_generator import NoLiveLogsError, generate_live_report
     try:
         summary = generate_live_report()
     except NoLiveLogsError as error:
@@ -835,7 +835,7 @@ with top_tab_testcase, st.container(key="testcase_subtabs"):
                     "expected_policy": new_policy.strip(),
                 })
                 save_cases(cases)
-                st.success(f"{new_case_id.strip()} 저장 완료 — quality/test_cases.json에 반영되었습니다.")
+                st.success(f"{new_case_id.strip()} 저장 완료 — ai_quality/test_cases.json에 반영되었습니다.")
                 st.rerun()
 
         # ---- 케이스 삭제 ----
@@ -870,7 +870,7 @@ with top_tab_testcase, st.container(key="testcase_subtabs"):
 
     with tab_batch:
         if df is None:
-            st.info("아직 배치 리포트가 없습니다. `python -m quality.quality_pipeline`을 먼저 실행하세요.")
+            st.info("아직 배치 리포트가 없습니다. `python -m ai_quality.quality_pipeline`을 먼저 실행하세요.")
         else:
             # 규칙 기반 vs API 기반, 모델별 KPI 두 줄
             for model_type, label in MODEL_LABELS.items():
@@ -993,7 +993,7 @@ with top_tab_report:
         if REPORT_MD_PATH.exists():
             st.markdown(REPORT_MD_PATH.read_text(encoding="utf-8"), unsafe_allow_html=True)
         else:
-            st.info("아직 배치 리포트가 없습니다. '➕ 케이스 관리·실행' 탭에서 테스트를 실행하거나 `python -m quality.quality_pipeline`을 실행하세요.")
+            st.info("아직 배치 리포트가 없습니다. '➕ 케이스 관리·실행' 탭에서 테스트를 실행하거나 `python -m ai_quality.quality_pipeline`을 실행하세요.")
 
 # =============================================================================
 # 상위 탭 2: Grafana

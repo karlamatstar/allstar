@@ -2,7 +2,7 @@
 가짜 대화/채점 로그를 임시 폴더에 만들어 리포트 산출물이 정상 생성되는지 확인합니다."""
 import json
 
-import quality.live_report_generator as live_report
+import ai_quality.live_report_generator as live_report
 
 
 def _fake_evaluation(decision: str, score: int) -> dict:
@@ -38,8 +38,7 @@ def test_generate_live_report(tmp_path, monkeypatch):
     monkeypatch.setattr(live_report, "CONVERSATIONS_LOG", log_dir / "conversations.jsonl")
     monkeypatch.setattr(live_report, "LIVE_EVAL_LOG", log_dir / "live_evaluations.jsonl")
     monkeypatch.setattr(live_report, "REPORTS_DIR", tmp_path / "reports")
-    monkeypatch.setattr(live_report, "LIVE_LOG_DIR", tmp_path / "reports" / "live_log")
-    monkeypatch.setattr(live_report, "DOCS_DIR", tmp_path / "docs")
+    monkeypatch.setattr(live_report, "HISTORY_DIR", tmp_path / "reports" / "history")
 
     summary = live_report.generate_live_report(timestamp="test_run")
 
@@ -49,7 +48,6 @@ def test_generate_live_report(tmp_path, monkeypatch):
     latest_md = tmp_path / "reports" / "live_report.md"
     latest_csv = tmp_path / "reports" / "live_report.csv"
     assert latest_md.exists() and latest_csv.exists()
-    assert (tmp_path / "docs" / "live_quality_report.md").exists()
 
     md = latest_md.read_text(encoding="utf-8")
     assert "실시간 대화 품질 리포트" in md

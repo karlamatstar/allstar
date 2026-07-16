@@ -118,7 +118,7 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
 
     if api_decision in ["FAIL", "REVIEW"] or rule_decision in ["FAIL", "REVIEW"]:
         import datetime
-        from quality.reports.defects.chatbot.defect_logger import log_defect_to_markdown
+        from ai_quality.defect_logger import log_defect_to_markdown
         from app.jira_client import create_jira_issue_for_question
 
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")

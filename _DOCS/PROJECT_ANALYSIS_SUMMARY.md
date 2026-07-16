@@ -62,8 +62,8 @@
 - `app/service_agent.py`: OpenAI 기반 교육과정 안내 챗봇
 - `app/rule_based_agent.py`: 키워드 기반 비교용 챗봇
 - `app/judge_agent.py`: 5개 평가 항목 AI Judge
-- `quality/quality_pipeline.py`: 배치 비교평가 파이프라인
-- `quality/live_report_generator.py`: 실시간 대화 로그 보고서
+- `ai_quality/quality_pipeline.py`: 배치 비교평가 파이프라인
+- `ai_quality/live_report_generator.py`: 실시간 대화 로그 보고서
 - `dashboard/streamlit_app.py`: 채팅, 배치 결과, 실시간 로그 대시보드
 - `monitoring/`: Prometheus와 Grafana 설정
 - `performance/`: k6 성능 및 장애 시나리오
@@ -117,7 +117,7 @@ API형과 규칙형 답변을 동일한 기준으로 비교한다.
 
 ### 3.7 현재 구현과 문서·데이터 간 불일치
 
-- 현재 `quality/test_cases.json`에는 6개 케이스가 있지만 저장된 최종 보고서는 5개만 반영한다.
+- 현재 `ai_quality/test_cases.json`에는 6개 케이스가 있지만 저장된 최종 보고서는 5개만 반영한다.
 - `하루 8시간`을 기대하는 테스트가 있지만 `knowledge_base.py`에는 일일 교육시간 정보가 없다.
 - `1588-5858` 연락처를 기대하는 테스트가 있지만 실제 지식베이스에는 연락처가 없다.
 - 규칙 검증이 FAIL인데 AI Judge가 PASS로 판정하는 사례가 있다.

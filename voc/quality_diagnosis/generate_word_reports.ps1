@@ -1,15 +1,17 @@
 param(
-    [string]$Root = "D:\voc"
+    [string]$ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 )
 
 $ErrorActionPreference = "Stop"
-$reports = Join-Path $Root "quality_diagnosis\reports"
+$reports = Join-Path $ProjectRoot "quality\reports\voc\testcase"
+$logs = Join-Path $ProjectRoot "logs\voc\testcase"
 $assets = Join-Path $reports "report_assets"
-$judgeLog = Join-Path $reports "logs\llm_judge\llm_judge_20260715_143539_908132.json"
-$pytestLog = Join-Path $reports "logs\pytest\pytest_20260715_142539_267083.json"
+$judgeLog = Get-ChildItem -Path $logs -Recurse -Filter "llm_judge_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+$pytestLog = Get-ChildItem -Path $logs -Recurse -Filter "pytest_*.json" | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+$pytestTextLog = if ($pytestLog) { [System.IO.Path]::ChangeExtension($pytestLog, ".log") } else { $null }
 $judgeCsv = Join-Path $reports "llm_judge_result.csv"
 $scoreMd = Join-Path $reports "quality_score_report.md"
-$casesJson = Join-Path $Root "quality_diagnosis\test_cases.json"
+$casesJson = Join-Path $ProjectRoot "voc\quality_diagnosis\test_cases.json"
 
 foreach ($path in @($judgeLog, $pytestLog, $judgeCsv, $scoreMd, $casesJson)) {
     if (-not (Test-Path -LiteralPath $path)) { throw "필수 보고서 자료가 없습니다: $path" }
@@ -300,7 +302,7 @@ $lowRows = @($lowCases | ForEach-Object { ,@($_.case_id, $_.total, $_.verdict, (
 $holdRows = @($immediate | ForEach-Object { ,@($_.case_id, $_.total, ($_.rationale.Substring(0, [Math]::Min(260, $_.rationale.Length)) + '…')) })
 $evidenceRows = @(
     @('pytest JSON', '상태·건수·환경·테스트별 수행시간', $pytestLog),
-    @('pytest LOG', '실행 순서와 상세 출력', (Join-Path $reports 'logs\pytest\pytest_20260715_142539_267083.log')),
+    @('pytest LOG', '실행 순서와 상세 출력', $pytestTextLog),
     @('LLM Judge JSON', '실행 상태·모델·케이스별 판정·API 시도', $judgeLog),
     @('Judge CSV', '9개 항목 점수·총점·근거·실제 분석', $judgeCsv),
     @('점수 보고서', '평균·최종 판정·케이스 상세', $scoreMd),

@@ -10,7 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 
-LOG_DIR = Path(__file__).resolve().parent / "reports" / "logs" / "pytest"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LOG_DIR = PROJECT_ROOT / "logs" / "voc" / "testcase" / "pytest"
 _RUN: dict | None = None
 _JSON_PATH: Path | None = None
 _STARTED_MONOTONIC = 0.0

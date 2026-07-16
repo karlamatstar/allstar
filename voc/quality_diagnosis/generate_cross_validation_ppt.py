@@ -17,7 +17,8 @@ from pptx.util import Inches, Pt
 
 
 ROOT = Path(__file__).resolve().parent
-REPORT_ROOT = ROOT / "reports" / "cross_validation"
+PROJECT_ROOT = ROOT.parent.parent
+REPORT_ROOT = PROJECT_ROOT / "quality" / "reports" / "voc" / "cross_validation"
 OUTPUT_PATH = REPORT_ROOT / "교차검증_발표자료.pptx"
 
 FONT = "맑은 고딕"

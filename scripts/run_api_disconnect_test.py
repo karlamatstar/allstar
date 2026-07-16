@@ -5,7 +5,7 @@ import urllib.error
 import urllib.request
 
 # 서버 컴퓨터에 test_cases.json이 없는 배포용 exe 환경에서도 쓸 수 있도록 기본 질문을 하드코딩해둔다
-# (서버 컴퓨터에서 직접 실행할 때는 __main__에서 실제 quality/test_cases.json의 첫 케이스로 대체된다).
+# (서버 컴퓨터에서 직접 실행할 때는 __main__에서 실제 ai_quality/test_cases.json의 첫 케이스로 대체된다).
 DEFAULT_QUESTION = "이 교육과정은 총 몇 시간인가요?"
 
 
@@ -64,7 +64,7 @@ if __name__ == "__main__":
 
     # 서버(개발자) 컴퓨터에서 프로젝트 전체를 두고 직접 실행할 때는 실제 큐레이션된 첫 테스트 케이스를 사용
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    json_path = os.path.join(base_dir, "quality", "test_cases.json")
+    json_path = os.path.join(base_dir, "ai_quality", "test_cases.json")
     question = DEFAULT_QUESTION
     try:
         with open(json_path, "r", encoding="utf-8") as f:

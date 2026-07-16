@@ -18,7 +18,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-REPORT_ROOT = ROOT / "quality_diagnosis" / "reports" / "cross_validation"
+PROJECT_ROOT = ROOT.parent
+REPORT_ROOT = PROJECT_ROOT / "quality" / "reports" / "voc" / "cross_validation"
+LOG_ROOT = PROJECT_ROOT / "logs" / "voc" / "cross_validation"
 AGENT_MODULES = (
     "interpreter", "retriever", "summarizer", "evaluator", "critic", "improver"
 )
@@ -314,8 +316,9 @@ async def run_experiment(experiment: str, case_id: str | None = None) -> int:
     os.environ.update(env)
     output_dir = experiment_output_dir(config["experiment"])
     run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    agent_log_dir = output_dir / "logs" / "agents" / run_id
-    meta_path = output_dir / "logs" / "cross_validation" / f"cross_validation_{run_id}.json"
+    experiment_log_dir = LOG_ROOT / config["experiment"].lower()
+    agent_log_dir = experiment_log_dir / "agents" / run_id
+    meta_path = experiment_log_dir / f"cross_validation_{run_id}.json"
     meta = {
         "run_id": run_id,
         "experiment": config["experiment"],
@@ -371,6 +374,7 @@ async def run_experiment(experiment: str, case_id: str | None = None) -> int:
         sys.path.insert(0, str(ROOT / "quality_diagnosis"))
         import llm_judge
 
+        os.environ["VOC_JUDGE_LOG_DIR"] = str(experiment_log_dir / "llm_judge" / run_id)
         result = await llm_judge.main(case_id=case_id, output_dir=str(output_dir))
         meta["status"] = "completed"
         return result

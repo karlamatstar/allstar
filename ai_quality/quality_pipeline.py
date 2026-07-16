@@ -12,13 +12,15 @@ from app.config import validate_config
 from app.judge_agent import JudgeUnavailableError, get_evaluation_from_openai
 from app.rule_based_agent import get_answer_from_rule_based_agent
 from app.service_agent import ApiAgentUnavailableError, get_answer_from_api_agent
-from quality.report_generator import generate_all
-from quality.rule_validator import validate_by_rules
+from ai_quality.report_generator import generate_all
+from ai_quality.rule_validator import validate_by_rules
 
-QUALITY_DIR = Path(__file__).resolve().parent
-TEST_CASE_FILE = QUALITY_DIR / "test_cases.json"
-REPORTS_DIR = QUALITY_DIR / "reports"
-DOCS_DIR = QUALITY_DIR.parent / "docs"
+AI_QUALITY_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = AI_QUALITY_DIR.parent
+TEST_CASE_FILE = AI_QUALITY_DIR / "test_cases.json"
+REPORTS_DIR = PROJECT_ROOT / "quality" / "reports" / "ai_agent" / "batch"
+TESTCASE_LOG_DIR = PROJECT_ROOT / "logs" / "ai_agent" / "testcase"
+MANIFEST_DIR = PROJECT_ROOT / "logs" / "report_manifests"
 
 MODEL_LABELS = {"rule_based": "규칙 기반", "api_based": "API 기반"}
 
@@ -118,7 +120,33 @@ def run_pipeline(test_cases: list, timestamp: str) -> list:
         results.append(result)
 
     print(f"\n{'='*50}\n  리포트 생성 중...\n{'='*50}")
-    generate_all(results, REPORTS_DIR, DOCS_DIR, timestamp)
+    TESTCASE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+    source_log = TESTCASE_LOG_DIR / f"ai_agent_batch_{timestamp}.json"
+    source_log.write_text(
+        json.dumps({
+            "schema_version": 1,
+            "run_id": timestamp,
+            "test_case_count": len(results),
+            "results": results,
+        }, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    generate_all(results, REPORTS_DIR, timestamp)
+    manifest = {
+        "schema_version": 1,
+        "report_type": "ai_agent_batch",
+        "run_id": timestamp,
+        "source": str(source_log.relative_to(PROJECT_ROOT)),
+        "outputs": [
+            str((REPORTS_DIR / "evaluation_result.json").relative_to(PROJECT_ROOT)),
+            str((REPORTS_DIR / "evaluation_result.csv").relative_to(PROJECT_ROOT)),
+            str((REPORTS_DIR / "final_quality_report.md").relative_to(PROJECT_ROOT)),
+        ],
+    }
+    (MANIFEST_DIR / f"ai_agent_batch_{timestamp}.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     print("  파이프라인 완료\n")
     return results
 

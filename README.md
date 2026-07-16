@@ -35,6 +35,16 @@ CMD 창의 순간 표시까지 숨기려면 `RUN\start_server_control_hidden.vbs
 
 QA는 `RUN\start_qa_control.bat`에서 실행한다.
 
+## 저장 구조
+
+- AI Agent 품질 코드: `ai_quality/`
+- AI Agent·VOC 리포트: `quality/reports/ai_agent/`, `quality/reports/voc/`
+- 대화·채점·테스트 원본 로그: `logs/ai_agent/`, `logs/voc/`
+- 서버와 GUI 실행 로그: `logs/services/`
+- 리포트 근거 목록: `logs/report_manifests/`
+
+원본 로그를 `quality/reports/`에 저장하지 않는다. `quality/reports/`에는 사람이 확인하는 결과 리포트만 둔다.
+
 ## VOC A~D
 
 A~D는 질문 한 건에 적용되는 생성 모델과 독립 Judge 모델의 조합이다.

@@ -20,14 +20,21 @@ from judge_prompt import build_judge_prompt, decide_verdict, parse_judge_respons
 
 ACTIVE_REPORTS_DIR = REPORTS_DIR
 DEFAULT_REPORTS_DIR = REPORTS_DIR
-JUDGE_LOG_DIR = ACTIVE_REPORTS_DIR / "logs" / "llm_judge"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_JUDGE_LOG_DIR = PROJECT_ROOT / "logs" / "voc" / "testcase"
+JUDGE_LOG_DIR = DEFAULT_JUDGE_LOG_DIR
 
 
 def configure_output_dir(path: str | None) -> None:
-    """단일 케이스 실행 시 기존 전체 보고서와 분리된 저장 위치를 설정한다."""
+    """보고서와 원본 실행 로그를 서로 다른 계열의 저장 위치로 설정한다."""
     global ACTIVE_REPORTS_DIR, JUDGE_LOG_DIR
     ACTIVE_REPORTS_DIR = Path(path).resolve() if path else REPORTS_DIR
-    JUDGE_LOG_DIR = ACTIVE_REPORTS_DIR / "logs" / "llm_judge"
+    configured_log_dir = os.environ.get("VOC_JUDGE_LOG_DIR")
+    JUDGE_LOG_DIR = (
+        Path(configured_log_dir).resolve()
+        if configured_log_dir
+        else DEFAULT_JUDGE_LOG_DIR
+    )
 
 
 def _now_iso() -> str:

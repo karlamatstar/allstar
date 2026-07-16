@@ -1,10 +1,10 @@
-"""챗봇 실시간 대화 로그(quality/reports/live_log/conversations.jsonl) + 실시간 채점 로그
-(quality/reports/live_log/live_evaluations.jsonl)를 합쳐 별도의 실시간 품질 리포트를 만든다.
+"""챗봇 실시간 대화 로그와 실시간 채점 로그를 합쳐 별도의 실시간 품질 리포트를 만든다.
 배치(test_cases.json) 리포트와는 완전히 별개 파일로 저장된다.
 
 - 대화와 채점은 request_id(UUID)로 1:1 매칭 (구버전 로그처럼 request_id가 없으면 질문 텍스트로 보조 매칭)
 - OpenAI API를 호출하지 않는다 — 이미 쌓인 로그만 집계하므로 비용 없이 즉시 실행 가능
-- 출력: quality/reports/live_log/{ts}_live_report.md/.csv + 최신본(live_report.md/.csv) + docs/live_quality_report.md
+- 입력: logs/ai_agent/live/conversations/ + logs/ai_agent/live/judgments/
+- 출력: quality/reports/ai_agent/live/history/ + 최신본(live_report.md/.csv)
 """
 import json
 import shutil
@@ -16,18 +16,16 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from quality.report_generator import (
+from ai_quality.report_generator import (
     AXIS_LABELS_MD, SCORE_COLS_MD, decision_badge, wrap_details,
 )
 
-QUALITY_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = QUALITY_DIR.parent
-REPORTS_DIR = QUALITY_DIR / "reports"
-LIVE_LOG_DIR = REPORTS_DIR / "live_log"  # 챗봇 대화/채점 원본 로그 + 실시간 리포트 이력본
-DOCS_DIR = PROJECT_ROOT / "docs"
-
-CONVERSATIONS_LOG = LIVE_LOG_DIR / "conversations.jsonl"
-LIVE_EVAL_LOG = LIVE_LOG_DIR / "live_evaluations.jsonl"
+AI_QUALITY_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = AI_QUALITY_DIR.parent
+REPORTS_DIR = PROJECT_ROOT / "quality" / "reports" / "ai_agent" / "live"
+HISTORY_DIR = REPORTS_DIR / "history"
+CONVERSATIONS_LOG = PROJECT_ROOT / "logs" / "ai_agent" / "live" / "conversations" / "conversations.jsonl"
+LIVE_EVAL_LOG = PROJECT_ROOT / "logs" / "ai_agent" / "live" / "judgments" / "live_evaluations.jsonl"
 
 MODEL_LABELS = {"api": "API 기반", "rule": "규칙 기반"}
 AXES = ["accuracy", "groundedness", "helpfulness", "safety", "understandability"]
@@ -123,8 +121,8 @@ def save_live_markdown_report(df: pd.DataFrame, file_path: Path) -> None:
 
     lines = ["# 챗봇 실시간 대화 품질 리포트", ""]
     lines += [
-        "> 배치 테스트케이스 리포트와 별개로, 실제 사용자 대화 로그(`quality/reports/live_log/conversations.jsonl`)와 "
-        "실시간 AI Judge 채점(`quality/reports/live_log/live_evaluations.jsonl`)만을 집계한 리포트입니다. "
+        "> 배치 테스트케이스 리포트와 별개로, `logs/ai_agent/live/`의 실제 사용자 대화와 "
+        "실시간 AI Judge 채점 로그만을 집계한 리포트입니다. "
         "시각은 모두 한국 시간(KST) 기준입니다.", "",
     ]
 
@@ -212,18 +210,17 @@ def generate_live_report(timestamp: str | None = None) -> dict:
     """실시간 대화 리포트를 생성한다. 반환값은 대시보드 표시용 요약 정보."""
     conversations = _read_jsonl(CONVERSATIONS_LOG)
     if not conversations:
-        raise NoLiveLogsError("대화 로그(quality/reports/live_log/conversations.jsonl)가 비어 있습니다. 먼저 챗봇과 대화하세요.")
+        raise NoLiveLogsError("대화 로그(logs/ai_agent/live/conversations/)가 비어 있습니다. 먼저 챗봇과 대화하세요.")
 
     evaluations = _read_jsonl(LIVE_EVAL_LOG)
     rows = build_rows(conversations, evaluations)
     df = pd.DataFrame(rows)
 
     timestamp = timestamp or f"{datetime.now():%Y%m%d_%H%M%S}"
-    LIVE_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
-    ts_csv = LIVE_LOG_DIR / f"{timestamp}_live_report.csv"
-    ts_md = LIVE_LOG_DIR / f"{timestamp}_live_report.md"
+    ts_csv = HISTORY_DIR / f"{timestamp}_live_report.csv"
+    ts_md = HISTORY_DIR / f"{timestamp}_live_report.md"
     df.to_csv(ts_csv, index=False, encoding="utf-8-sig")
     save_live_markdown_report(df, ts_md)
 
@@ -231,10 +228,8 @@ def generate_live_report(timestamp: str | None = None) -> dict:
     latest_md = REPORTS_DIR / "live_report.md"
     shutil.copy2(ts_csv, latest_csv)
     shutil.copy2(ts_md, latest_md)
-    shutil.copy2(ts_md, DOCS_DIR / "live_quality_report.md")
-
     print(f"  CSV      → {ts_csv} (최신본 → {latest_csv})")
-    print(f"  Markdown → {ts_md} (최신본 → {latest_md}, docs 사본 → {DOCS_DIR / 'live_quality_report.md'})")
+    print(f"  Markdown → {ts_md} (최신본 → {latest_md})")
 
     return {
         "timestamp": timestamp,

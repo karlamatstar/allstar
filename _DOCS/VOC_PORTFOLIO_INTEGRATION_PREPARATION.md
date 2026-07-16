@@ -213,9 +213,11 @@ VOC 리포트는 세 가지 계열로 분리한다. 이 분류는 기존 AI Agen
 - 배치 평가 CSV·JSON·Markdown 리포트와 최신본
 - 기존 검증·성능·결함 리포트
 
-구현 시에는 기존 생성기를 재작성하지 않고 재사용한다. 단, 원본 로그가 현재 `quality/reports/`안에 리포트와 함께 저장되는 구조는 통합 시 `logs/ai_agent/`와 `quality/reports/ai_agent/`로 역할을 분리한다. 기존 경로를 참조하는 코드와 화면이 깨지지 않도록 환경변수 또는 호환 경로를 둔다.
+기존 생성기의 평가 로직은 재사용하되 저장 경로는 통합 기준에 맞췄다. 원본 로그는 `logs/ai_agent/`, 생성 리포트는 `quality/reports/ai_agent/`로 분리하며 코드와 화면도 새 경로를 사용한다.
 
-## 5. 권장 디렉터리 구조
+## 5. 적용된 기준 디렉터리 구조
+
+아래 구조는 권장안에 머무르지 않고 `_Total`의 실제 저장 기준으로 적용한다. 실행 전에도 주요 폴더가 보이도록 `.gitkeep`을 두며, 실행 결과 파일은 `.gitignore`로 제외한다.
 
 ```text
 _Total/
@@ -242,15 +244,18 @@ _Total/
 │  ├─ main.py                   VOC HTTP 게이트웨이
 │  ├─ schemas.py
 │  ├─ metrics.py
-│  ├─ logger.py
-│  ├─ live_judge.py
+│  ├─ log_store.py
+│  ├─ judge.py
+│  ├─ runtime.py
 │  └─ report_generator.py
 ├─ quality/
 │  └─ reports/
 │     ├─ ai_agent/
 │     │  ├─ batch/
+│     │  │  └─ history/
 │     │  └─ live/
-│     └─ voc/
+│     │     └─ history/
+│     ├─ voc/
 │        ├─ live/
 │        │  ├─ latest/
 │        │  └─ history/
@@ -260,6 +265,10 @@ _Total/
 │        │  ├─ c/
 │        │  └─ d/
 │        └─ cross_validation/
+│     ├─ defects/
+│     │  ├─ chatbot/
+│     │  └─ chaos/
+│     └─ performance/
 ├─ logs/                       리포트 근거 및 실행 로그(자동 생성)
 │  ├─ voc/
 │  │  ├─ live/
@@ -269,7 +278,8 @@ _Total/
 │  │  │  ├─ a/
 │  │  │  ├─ b/
 │  │  │  ├─ c/
-│  │  │  └─ d/
+│  │  │  ├─ d/
+│  │  │  └─ pytest/           VOC pytest 실행 로그(실행 시 생성)
 │  │  └─ cross_validation/        비교 입력·결과 로그
 │  ├─ ai_agent/
 │  │  ├─ live/
@@ -290,6 +300,16 @@ _Total/
 │  └─ start_qa_control_hidden.vbs
 └─ _DOCS/
 ```
+
+저장 원칙은 다음과 같다.
+
+- `ai_quality/`: AI Agent 품질평가 코드와 테스트케이스 원본
+- `quality/reports/`: 사람이 읽는 CSV·JSON·Markdown·문서형 결과
+- `logs/`: 대화·채점·테스트·교차검증 원본과 서비스 실행 기록
+- `logs/report_manifests/`: 각 리포트가 어떤 원본 로그를 사용했는지 연결하는 manifest
+- `_DOCS/`: 구현 기준과 사용법 문서만 저장하며 실행 리포트 사본을 만들지 않음
+- 기존 `quality/reports/live_log/`, `quality/reports/testcase_log/` 경로는 사용하지 않는다.
+- 결함 기록 파이썬 코드는 `ai_quality/defect_logger.py`에 두고 생성 결과만 `quality/reports/defects/`에 저장한다.
 
 정확한 구조는 구현 과정에서 조정할 수 있지만 리포트 데이터 영역과 원본 로그 영역은 처음부터 분리해야 한다.
 

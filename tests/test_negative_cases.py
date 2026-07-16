@@ -2,8 +2,8 @@
 import pytest
 
 from app.service_agent import get_answer_from_api_agent
-from quality.quality_pipeline import TEST_CASE_FILE, load_test_cases
-from quality.rule_validator import validate_by_rules
+from ai_quality.quality_pipeline import TEST_CASE_FILE, load_test_cases
+from ai_quality.rule_validator import validate_by_rules
 
 NEGATIVE_CASES = [tc for tc in load_test_cases(TEST_CASE_FILE) if tc["test_type"] == "Negative"]
 

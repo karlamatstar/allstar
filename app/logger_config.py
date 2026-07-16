@@ -2,9 +2,10 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from app.config import LOG_DIR
+from app.config import CONVERSATION_LOG_DIR, JUDGMENT_LOG_DIR
 
-CONVERSATION_LOG_FILE = LOG_DIR / "conversations.jsonl"
+CONVERSATION_LOG_FILE = CONVERSATION_LOG_DIR / "conversations.jsonl"
+EVALUATION_LOG_FILE = JUDGMENT_LOG_DIR / "live_evaluations.jsonl"
 
 logger = logging.getLogger("ai_agent")
 logger.setLevel(logging.INFO)
@@ -42,5 +43,5 @@ def log_evaluation(question: str, evaluation: dict, model: str = "api", request_
         "model": model,
         "evaluation": evaluation,
     }
-    with open(LOG_DIR / "live_evaluations.jsonl", "a", encoding="utf-8") as f:
+    with open(EVALUATION_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")

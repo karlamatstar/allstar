@@ -14,7 +14,8 @@ from docx.shared import Cm, Pt, RGBColor
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REPORTS = ROOT / "quality_diagnosis" / "reports"
+PROJECT_ROOT = ROOT.parent
+REPORTS = PROJECT_ROOT / "quality" / "reports" / "voc" / "testcase"
 CSV_PATH = REPORTS / "llm_judge_result.csv"
 OUTPUT_PATH = REPORTS / "보고서_말줄임문장_완성본.docx"
 

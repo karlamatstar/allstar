@@ -29,7 +29,8 @@ from utils.env_loader import load_env  # noqa: E402
 load_env()
 
 QA_DIR = Path(__file__).resolve().parent
-REPORTS_DIR = QA_DIR / "reports"
+PROJECT_ROOT = ROOT.parent
+REPORTS_DIR = PROJECT_ROOT / "quality" / "reports" / "voc" / "testcase"
 
 # ============ 에이전트 포트 정의 ============
 AGENT_PORTS = {

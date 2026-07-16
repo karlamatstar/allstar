@@ -256,15 +256,14 @@ def save_markdown_report(results: list, file_path: Path) -> None:
     file_path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def generate_all(results: list, reports_dir: Path, docs_dir: Path, timestamp: str) -> None:
-    """타임스탬프가 붙은 이력본은 reports_dir/testcase_log/에, 날짜 없는 최신본은 reports_dir 바로 아래에 저장한다."""
-    log_dir = reports_dir / "testcase_log"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    docs_dir.mkdir(parents=True, exist_ok=True)
+def generate_all(results: list, reports_dir: Path, timestamp: str) -> None:
+    """타임스탬프가 붙은 이력본은 reports_dir/history/에, 날짜 없는 최신본은 reports_dir 바로 아래에 저장한다."""
+    history_dir = reports_dir / "history"
+    history_dir.mkdir(parents=True, exist_ok=True)
 
-    ts_json = log_dir / f"{timestamp}_evaluation_result.json"
-    ts_csv  = log_dir / f"{timestamp}_evaluation_result.csv"
-    ts_md   = log_dir / f"{timestamp}_final_quality_report.md"
+    ts_json = history_dir / f"{timestamp}_evaluation_result.json"
+    ts_csv  = history_dir / f"{timestamp}_evaluation_result.csv"
+    ts_md   = history_dir / f"{timestamp}_final_quality_report.md"
 
     save_json_report(results, ts_json)
     save_csv_report(results, ts_csv)
@@ -277,27 +276,24 @@ def generate_all(results: list, reports_dir: Path, docs_dir: Path, timestamp: st
     shutil.copy2(ts_csv, latest_csv)
     shutil.copy2(ts_md, latest_md)
 
-    # docs/final_quality_report.md 는 팀 문서용 "공식 최신본" 사본
-    shutil.copy2(latest_md, docs_dir / "final_quality_report.md")
-
     print(f"  JSON     → {ts_json} (최신본 → {latest_json})")
     print(f"  CSV      → {ts_csv} (최신본 → {latest_csv})")
-    print(f"  Markdown → {ts_md} (최신본 → {latest_md}, docs 사본 → {docs_dir / 'final_quality_report.md'})")
+    print(f"  Markdown → {ts_md} (최신본 → {latest_md})")
 
 
 if __name__ == "__main__":
     from datetime import datetime
 
-    reports_dir = Path(__file__).resolve().parent / "reports"
-    docs_dir = Path(__file__).resolve().parent.parent / "docs"
+    project_root = Path(__file__).resolve().parent.parent
+    reports_dir = project_root / "quality" / "reports" / "ai_agent" / "batch"
     existing_json = reports_dir / "evaluation_result.json"
     if not existing_json.exists():
         raise SystemExit(
-            f"{existing_json} 파일이 없습니다. 먼저 `python -m quality.quality_pipeline`을 한 번 실행해 "
+            f"{existing_json} 파일이 없습니다. 먼저 `python -m ai_quality.quality_pipeline`을 한 번 실행해 "
             "평가 결과를 생성한 뒤 다시 시도하세요."
         )
 
     existing_results = json.loads(existing_json.read_text(encoding="utf-8"))
     timestamp = f"{datetime.now():%Y%m%d_%H%M%S}"
-    generate_all(existing_results, reports_dir, docs_dir, timestamp)
+    generate_all(existing_results, reports_dir, timestamp)
     print("\n기존 평가 결과(JSON)를 바탕으로 리포트를 재생성했습니다. (OpenAI API 재호출 없음)")

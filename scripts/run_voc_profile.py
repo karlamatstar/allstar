@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -41,15 +43,41 @@ def main() -> int:
     print(f"생성: {profile.generation.provider}/{profile.generation.model}/{profile.generation.reasoning}")
     print(f"평가: {profile.judge.provider}/{profile.judge.model}/{profile.judge.reasoning}")
     print(f"대표 케이스: {', '.join(CASES)}")
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    sources = []
+    outputs = []
     for case_id in CASES:
         print(f"\n===== {case_id} 시작 =====", flush=True)
+        report_dir = ROOT / "quality" / "reports" / "voc" / "testcase" / profile.profile_id.lower() / case_id
+        log_dir = ROOT / "logs" / "voc" / "testcase" / profile.profile_id.lower() / case_id
+        case_env = env.copy()
+        case_env["VOC_JUDGE_LOG_DIR"] = str(log_dir)
         result = subprocess.run(
             [sys.executable, "voc/quality_diagnosis/llm_judge.py", "--case-id", case_id,
-             "--output-dir", f"quality/reports/voc/testcase/{profile.profile_id.lower()}/{case_id}"],
-            cwd=ROOT, env=env,
+             "--output-dir", str(report_dir)],
+            cwd=ROOT, env=case_env,
         )
         if result.returncode:
             return result.returncode
+        sources.extend(str(path.relative_to(ROOT)) for path in sorted(log_dir.glob("*.json")))
+        outputs.extend(str(path.relative_to(ROOT)) for path in sorted(report_dir.glob("*")) if path.is_file())
+
+    manifest_dir = ROOT / "logs" / "report_manifests"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "schema_version": 1,
+        "report_type": "voc_testcase",
+        "run_id": run_id,
+        "profile_id": profile.profile_id,
+        "cases": list(CASES),
+        "generation": profile.snapshot()["generation"],
+        "judge": profile.snapshot()["judge"],
+        "sources": sources,
+        "outputs": outputs,
+    }
+    (manifest_dir / f"voc_testcase_{profile.profile_id.lower()}_{run_id}.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return 0
 
 

@@ -4,9 +4,11 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-# 챗봇 대화/채점 로그는 quality/reports/live_log/에 남긴다 (배치 리포트의 quality/reports/testcase_log/와 대응)
-LOG_DIR = BASE_DIR / "quality" / "reports" / "live_log"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+AI_AGENT_LIVE_LOG_ROOT = BASE_DIR / "logs" / "ai_agent" / "live"
+CONVERSATION_LOG_DIR = AI_AGENT_LIVE_LOG_ROOT / "conversations"
+JUDGMENT_LOG_DIR = AI_AGENT_LIVE_LOG_ROOT / "judgments"
+CONVERSATION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+JUDGMENT_LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(BASE_DIR / ".env")
 
