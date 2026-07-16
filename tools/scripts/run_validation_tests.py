@@ -127,7 +127,7 @@ def create_chaos_defect_report(k6_out, pytest_out):
 [장애-모의훈련] /fault-lab API 장애 복합 재현 결과
 
 ## 재현 절차
-GUI '검증 테스트' 실행 (k6 `chaos_test.js` 호출) 및 기능 검증(Pytest) 자동화 파이프라인 수행
+GUI '장애·기능 검증 시험' 실행 (k6 `chaos_test.js` 호출) 및 기능 검증(Pytest) 자동화 파이프라인 수행
 
 ## 실제 결과
 * **FL-001 (정상 응답)**: 기준선 검증을 위해 정상적인 API 호출 시나리오 통과 확인 (HTTP 200).
