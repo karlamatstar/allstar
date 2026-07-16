@@ -42,8 +42,14 @@ def run_k6():
     return result_file, "".join(output_lines)
 
 def run_pytest():
-    print("▶ Running Functional Tests (Pytest)...", flush=True)
-    cmd = [sys.executable, "-m", "pytest", "-v", "tests/"]
+    print("▶ Running Functional Tests (Pytest, external AI calls excluded)...", flush=True)
+    cmd = [
+        sys.executable, "-m", "pytest", "-v", "tests/",
+        "--ignore=tests/ai_agent/test_negative_cases.py",
+        "--ignore=tests/ai_agent/test_evaluation_pipeline.py",
+        "--ignore=tests/voc/evaluation/test_pipeline_e2e.py",
+        "-k", "not end_to_end",
+    ]
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
 

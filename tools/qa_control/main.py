@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -14,6 +16,8 @@ PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 PY = str(PYTHON if PYTHON.exists() else sys.executable)
 LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+RUN_LOG = LOG_DIR / "qa_control_runs.jsonl"
+RUN_LOG_LOCK = threading.Lock()
 
 AI_TESTS = [
     ("기본 동작 시험 (Smoke Test)", ["k6", "run", "ops/performance/smoke_test.js"], False),
@@ -112,6 +116,12 @@ def validate_load_settings(vus_text: str, duration_text: str) -> tuple[int, int]
     return vus, duration
 
 
+def append_run_event(event: dict) -> None:
+    RUN_LOG.parent.mkdir(parents=True, exist_ok=True)
+    with RUN_LOG_LOCK, RUN_LOG.open("a", encoding="utf-8") as log:
+        log.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
 class TestTab(tk.Frame):
     def __init__(
         self,
@@ -121,11 +131,16 @@ class TestTab(tk.Frame):
         confirm: bool = False,
         detail: str = "",
         load_settings: tuple[str, str] | None = None,
+        owner: "QAControl | None" = None,
     ):
         super().__init__(parent, bg="#202634")
+        self.owner = owner
+        self.title_text = title
         self.command = command
         self.confirm = confirm
         self.process: subprocess.Popen | None = None
+        self.cancel_requested = False
+        self.started_at: str | None = None
         self.vus_var = tk.StringVar(value=load_settings[0]) if load_settings else None
         self.duration_var = tk.StringVar(value=load_settings[1]) if load_settings else None
         tk.Label(self, text=title, bg="#202634", fg="#e5ebf5",
@@ -149,8 +164,13 @@ class TestTab(tk.Frame):
             tk.Entry(settings, textvariable=self.duration_var, width=10, justify="center").pack(side="left", padx=6)
         bar = tk.Frame(self, bg="#202634")
         bar.pack(fill="x", padx=12, pady=9)
-        tk.Button(bar, text="실행", command=self.start, bg="#26734d", fg="white", relief="flat", padx=15).pack(side="left")
-        tk.Button(bar, text="중지", command=self.stop, bg="#8a3142", fg="white", relief="flat", padx=15).pack(side="left", padx=6)
+        self.start_button = tk.Button(bar, text="실행", command=self.start, bg="#26734d", fg="white", relief="flat", padx=15)
+        self.start_button.pack(side="left")
+        self.stop_button = tk.Button(
+            bar, text="중지", command=self.stop, bg="#8a3142", fg="white",
+            disabledforeground="#a7adb8", relief="flat", padx=15, state="disabled",
+        )
+        self.stop_button.pack(side="left", padx=6)
         self.console = tk.Text(self, bg="#0f131c", fg="#d8e1ef", font=("Consolas", 9), wrap="word")
         self.console.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
@@ -185,15 +205,27 @@ class TestTab(tk.Frame):
                 )
             if not messagebox.askyesno("실행 전 확인", message):
                 return
+        if self.owner and not self.owner.acquire_execution(self):
+            return
+        self.cancel_requested = False
+        self.started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         self.console.insert("end", "\n> " + " ".join(self.command) + "\n")
         if load_summary:
             self.console.insert("end", load_summary)
-        self.process = subprocess.Popen(
-            self.command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace",
-            env=env,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
+        append_run_event(self._run_event("started", "running", settings=load_summary.strip()))
+        try:
+            self.process = subprocess.Popen(
+                self.command, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                env=env,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+        except Exception as error:
+            self.console.insert("end", f"\n[시작 실패] {error}\n")
+            append_run_event(self._run_event("finished", "start_failed", error=str(error)))
+            if self.owner:
+                self.owner.release_execution(self)
+            return
         threading.Thread(target=self._read, daemon=True).start()
 
     def _read(self):
@@ -201,7 +233,28 @@ class TestTab(tk.Frame):
         for line in self.process.stdout:
             self.after(0, self._append, line)
         code = self.process.wait()
-        self.after(0, self._append, f"\n[종료 코드: {code}]\n")
+        status = "cancelled" if self.cancel_requested else "completed" if code == 0 else "failed"
+        self.after(0, self._finish, status, code)
+
+    def _run_event(self, event: str, status: str, **extra) -> dict:
+        payload = {
+            "timestamp": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "event": event,
+            "status": status,
+            "test": self.title_text,
+            "command": self.command,
+            "started_at": self.started_at,
+        }
+        payload.update(extra)
+        return payload
+
+    def _finish(self, status: str, code: int):
+        labels = {"completed": "완료", "failed": "실패", "cancelled": "사용자 중지"}
+        self._append(f"\n[실행 상태: {labels[status]} / 종료 코드: {code}]\n")
+        append_run_event(self._run_event("finished", status, exit_code=code))
+        self.process = None
+        if self.owner:
+            self.owner.release_execution(self)
 
     def _append(self, text: str):
         self.console.insert("end", text)
@@ -209,13 +262,26 @@ class TestTab(tk.Frame):
 
     def stop(self):
         if self.process and self.process.poll() is None:
-            subprocess.run(["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+            self.cancel_requested = True
+            self._append("\n[사용자 중지 요청] 실행 중인 시험을 종료합니다.\n")
+            pid = self.process.pid
+
+            def worker():
+                subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               creationflags=subprocess.CREATE_NO_WINDOW, check=False)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+    def set_execution_controls(self, active: bool, any_running: bool):
+        self.start_button.configure(state="disabled" if any_running else "normal")
+        self.stop_button.configure(state="normal" if active else "disabled")
 
 class QAControl(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.test_tabs: list[TestTab] = []
+        self.active_tab: TestTab | None = None
         self.title("AllStar 품질검사 관리")
         self.geometry("1320x800")
         self.minsize(1050, 650)
@@ -247,22 +313,20 @@ class QAControl(tk.Tk):
         ai_tabs = ttk.Notebook(ai)
         ai_tabs.pack(fill="both", expand=True, padx=8, pady=8)
         for title, command, confirm in AI_TESTS:
-            ai_tabs.add(
-                TestTab(
-                    ai_tabs,
-                    title,
-                    command,
-                    confirm,
-                    detail=TEST_DESCRIPTIONS[title],
-                    load_settings=LOAD_SETTINGS.get(title),
-                ),
-                text=two_line_tab_label(title),
+            self._add_test_tab(
+                ai_tabs,
+                two_line_tab_label(title),
+                title,
+                command,
+                confirm,
+                detail=TEST_DESCRIPTIONS[title],
+                load_settings=LOAD_SETTINGS.get(title),
             )
 
         voc_tabs = ttk.Notebook(voc)
         voc_tabs.pack(fill="both", expand=True, padx=8, pady=8)
-        voc_tabs.add(TestTab(
-            voc_tabs,
+        self._add_test_tab(
+            voc_tabs, "전체 비AI 검사\n(pytest)",
             "전체 비AI pytest",
             [
                 PY, "-u", "-m", "pytest", "tests/voc/evaluation", "-v",
@@ -270,13 +334,13 @@ class QAControl(tk.Tk):
                 "-k", "not end_to_end",
             ],
             detail=VOC_NON_AI_DESCRIPTION,
-        ), text="전체 비AI 검사\n(pytest)")
-        voc_tabs.add(TestTab(
-            voc_tabs,
+        )
+        self._add_test_tab(
+            voc_tabs, "단위 테스트\n(Unit Test)",
             "단위 테스트",
             [PY, "-u", "-m", "pytest", "tests/voc/evaluation/test_agent_unit.py", "tests/voc/evaluation/test_llm_judge.py", "-v"],
             detail=VOC_UNIT_DESCRIPTION,
-        ), text="단위 테스트\n(Unit Test)")
+        )
         for profile_id in "ABCD":
             command = [PY, "-u", "tools/scripts/run_voc_profile.py", "--profile", profile_id]
             detail = (
@@ -286,7 +350,33 @@ class QAControl(tk.Tk):
                 + "\n대표 사례 2건만 실행합니다. 확장 사고 기능: 사용 안 함(thinking=disabled)"
             )
             title = f"에이전트 교차 테스트 ({profile_id})"
-            voc_tabs.add(TestTab(voc_tabs, title, command, True, detail), text=f"에이전트 교차 테스트\n({profile_id})")
+            self._add_test_tab(
+                voc_tabs, f"에이전트 교차 테스트\n({profile_id})",
+                title, command, True, detail=detail,
+            )
+
+    def _add_test_tab(self, notebook, tab_text: str, title: str, command: list[str], confirm: bool = False, **kwargs):
+        tab = TestTab(notebook, title, command, confirm, owner=self, **kwargs)
+        self.test_tabs.append(tab)
+        notebook.add(tab, text=tab_text)
+
+    def acquire_execution(self, tab: TestTab) -> bool:
+        if self.active_tab is not None:
+            messagebox.showwarning(
+                "시험 실행 중",
+                f"'{self.active_tab.title_text}'이(가) 실행 중입니다.\n현재 시험을 중지하거나 완료한 뒤 다시 실행하세요.",
+            )
+            return False
+        self.active_tab = tab
+        for candidate in self.test_tabs:
+            candidate.set_execution_controls(candidate is tab, any_running=True)
+        return True
+
+    def release_execution(self, tab: TestTab):
+        if self.active_tab is tab:
+            self.active_tab = None
+        for candidate in self.test_tabs:
+            candidate.set_execution_controls(active=False, any_running=False)
 
 
 if __name__ == "__main__":

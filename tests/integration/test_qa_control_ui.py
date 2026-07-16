@@ -1,6 +1,7 @@
 """QA 관리 GUI의 탭 표기와 기본 조작 구성을 검증한다."""
 
 import importlib.util
+import json
 from pathlib import Path
 
 
@@ -31,9 +32,9 @@ def test_top_and_voc_tabs_use_two_line_labels():
 
     assert 'text="AI 상담 품질검사\\n(AI Agent QA)"' in source
     assert 'text="고객 의견 분석 품질검사\\n(VOC QA)"' in source
-    assert 'text="전체 비AI 검사\\n(pytest)"' in source
-    assert 'text="단위 테스트\\n(Unit Test)"' in source
-    assert 'text=f"에이전트 교차 테스트\\n({profile_id})"' in source
+    assert '"전체 비AI 검사\\n(pytest)"' in source
+    assert '"단위 테스트\\n(Unit Test)"' in source
+    assert 'f"에이전트 교차 테스트\\n({profile_id})"' in source
     assert 'title = f"에이전트 교차 테스트 ({profile_id})"' in source
 
 
@@ -91,3 +92,45 @@ def test_gui_descriptions_do_not_expose_report_folder_paths():
     assert "완료 후 결함 보고서가 자동 생성됩니다" in source
     assert "완료 후 성능 보고서가 자동 생성됩니다" in source
     assert "완료 후 프로필별 보고서가 자동 생성됩니다" in source
+
+
+def test_global_execution_lock_updates_all_tab_buttons():
+    app = qa_control.QAControl()
+    app.withdraw()
+    app.update_idletasks()
+    try:
+        assert len(app.test_tabs) == 14
+        assert all(tab.start_button.cget("state") == "normal" for tab in app.test_tabs)
+        assert all(tab.stop_button.cget("state") == "disabled" for tab in app.test_tabs)
+
+        active = app.test_tabs[0]
+        assert app.acquire_execution(active) is True
+        assert all(tab.start_button.cget("state") == "disabled" for tab in app.test_tabs)
+        assert active.stop_button.cget("state") == "normal"
+        assert all(tab.stop_button.cget("state") == "disabled" for tab in app.test_tabs[1:])
+
+        app.release_execution(active)
+        assert all(tab.start_button.cget("state") == "normal" for tab in app.test_tabs)
+        assert all(tab.stop_button.cget("state") == "disabled" for tab in app.test_tabs)
+    finally:
+        app.destroy()
+
+
+def test_run_events_are_written_as_structured_jsonl(tmp_path, monkeypatch):
+    run_log = tmp_path / "qa_control_runs.jsonl"
+    monkeypatch.setattr(qa_control, "RUN_LOG", run_log)
+
+    qa_control.append_run_event({"event": "started", "status": "running", "test": "시험"})
+    qa_control.append_run_event({"event": "finished", "status": "cancelled", "test": "시험"})
+
+    events = [json.loads(line) for line in run_log.read_text(encoding="utf-8").splitlines()]
+    assert [event["status"] for event in events] == ["running", "cancelled"]
+
+
+def test_validation_command_excludes_external_ai_tests_by_default():
+    source = (ROOT / "tools" / "scripts" / "run_validation_tests.py").read_text(encoding="utf-8")
+
+    assert "--ignore=tests/ai_agent/test_negative_cases.py" in source
+    assert "--ignore=tests/ai_agent/test_evaluation_pipeline.py" in source
+    assert "--ignore=tests/voc/evaluation/test_pipeline_e2e.py" in source
+    assert '"-k", "not end_to_end"' in source
