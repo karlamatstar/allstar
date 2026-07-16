@@ -8,8 +8,11 @@
 - CMD 창 숨김 실행: `start_servers_hidden.vbs`
 - 컨테이너 실행 도구(Docker) 서비스와 Windows 호스트 통합 화면(Streamlit)의 전체·개별 시작 및 종료
 - 포트 기반 상태 표시, 서비스별 실행 기록(Log), 서버 기능 명세(Swagger)·통합 화면(Streamlit)·상태 수집(Prometheus)·운영 화면(Grafana) 접속
+- 우상단 `X` 종료 시 Streamlit과 현재 프로젝트의 Docker 서비스를 먼저 종료
+- `RUN` 런처 사용 중 GUI가 강제 종료되면 독립 종료 감시기가 남은 서비스를 정리
 
 시작 오류와 Streamlit 출력은 `_OUTPUT/logs/services/`에서 확인한다.
+강제 종료 감시의 범위와 한계는 `_DOCS/SERVER_CONTROL_LIFECYCLE.md`를 따른다.
 
 ## 품질검사 관리 (QA Control Center)
 

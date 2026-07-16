@@ -22,7 +22,7 @@ def test_product_code_uses_src_layout_and_old_roots_are_removed():
 def test_run_launchers_point_to_tool_implementations():
     servers = (ROOT / "RUN" / "start_servers.bat").read_text(encoding="utf-8")
     qa = (ROOT / "RUN" / "start_qa.bat").read_text(encoding="utf-8")
-    assert "tools\\server_control\\main.py" in servers
+    assert "tools\\server_control\\shutdown_guard.py" in servers
     assert "tools\\qa_control\\main.py" in qa
 
 

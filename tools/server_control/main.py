@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import queue
 import socket
@@ -11,6 +12,8 @@ import webbrowser
 from pathlib import Path
 from tkinter import messagebox
 
+from lifecycle import append_shutdown_log, stop_project_services, terminate_process_tree
+
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
@@ -18,6 +21,9 @@ PYTHONW = ROOT / ".venv" / "Scripts" / "pythonw.exe"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+RUNTIME_DIR = LOG_DIR / "runtime"
+RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+SHUTDOWN_LOG = LOG_DIR / "shutdown_guard.log"
 
 SERVICES = [
     ("AI 상담 서버 (Portfolio API)", "portfolio-api", 8000, "http://localhost:8000/docs", "docker"),
@@ -51,10 +57,19 @@ class ServerControl(tk.Tk):
         self.configure(bg="#151923")
         self.streamlit_process: subprocess.Popen | None = None
         self.streamlit_log = None
+        self.closing = False
         self.events: queue.Queue[str] = queue.Queue()
         self.rows: dict[str, tk.Label] = {}
         self.selected = tk.StringVar(value="portfolio-api")
+        self.state_path = Path(
+            os.getenv("ALLSTAR_SERVER_STATE", RUNTIME_DIR / f"server_control_{os.getpid()}.json")
+        )
+        self.clean_marker = Path(
+            os.getenv("ALLSTAR_SERVER_CLEAN_MARKER", RUNTIME_DIR / f"server_control_{os.getpid()}.clean")
+        )
+        self._write_runtime_state()
         self._build()
+        self.protocol("WM_DELETE_WINDOW", self.close_application)
         self.after(300, self._refresh_status)
         self.after(200, self._drain_events)
 
@@ -133,6 +148,16 @@ class ServerControl(tk.Tk):
     def _service(self, key: str):
         return next(item for item in SERVICES if item[1] == key)
 
+    def _write_runtime_state(self, streamlit_pid: int | None = None):
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(
+            json.dumps(
+                {"gui_pid": os.getpid(), "streamlit_pid": streamlit_pid},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
     def _start_streamlit(self):
         if self.streamlit_process and self.streamlit_process.poll() is None:
             return
@@ -152,13 +177,16 @@ class ServerControl(tk.Tk):
             env=env,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
+        self._write_runtime_state(self.streamlit_process.pid)
 
     def _stop_streamlit(self):
         if self.streamlit_process and self.streamlit_process.poll() is None:
-            self.streamlit_process.terminate()
+            terminate_process_tree(self.streamlit_process.pid, SHUTDOWN_LOG)
         if self.streamlit_log:
             self.streamlit_log.close()
             self.streamlit_log = None
+        self.streamlit_process = None
+        self._write_runtime_state()
 
     def start_all(self):
         docker_services = [key for _, key, _, _, kind in SERVICES if kind == "docker"]
@@ -167,6 +195,26 @@ class ServerControl(tk.Tk):
     def stop_all(self):
         self._stop_streamlit()
         self._docker("stop")
+
+    def close_application(self):
+        if self.closing:
+            return
+        self.closing = True
+        self.title("AllStar 서버 관리 - 전체 서버 종료 중...")
+        self.events.put("\n[프로그램 종료 요청] 전체 서버를 종료한 뒤 창을 닫습니다.\n")
+
+        if self.streamlit_log:
+            self.streamlit_log.close()
+            self.streamlit_log = None
+
+        def worker():
+            success = stop_project_services(ROOT, self.state_path, SHUTDOWN_LOG)
+            if success:
+                self.clean_marker.parent.mkdir(parents=True, exist_ok=True)
+                self.clean_marker.write_text("clean", encoding="utf-8")
+            self.after(0, self.destroy)
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def start_selected(self):
         _, key, _, _, kind = self._service(self.selected.get())
@@ -208,9 +256,12 @@ class ServerControl(tk.Tk):
                 break
         if changed:
             self._set_log("".join(chunks))
-        self.after(200, self._drain_events)
+        if not self.closing:
+            self.after(200, self._drain_events)
 
     def _refresh_status(self):
+        if self.closing:
+            return
         for _, key, port, _, _ in SERVICES:
             ready = port_open(port)
             self.rows[key].configure(text="● 실행 중" if ready else "● 중지", fg="#70c987" if ready else "#788398")

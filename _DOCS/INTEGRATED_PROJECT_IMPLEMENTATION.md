@@ -31,6 +31,7 @@
 - VOC 챗봇 A~D 카드와 실제 모델·추론 설정 표시
 - Docker Compose의 Portfolio API, VOC API, VOC 에이전트 6개, Prometheus, Grafana
 - Windows 호스트 통합 화면(Streamlit)을 함께 제어하는 서버 관리(Server Control Center)
+- 서버 관리 GUI 정상·강제 종료 시 현재 프로젝트 서비스를 정리하는 독립 종료 감시기
 - AI 상담 품질검사 8개 구분과 고객 의견 분석 품질검사를 제공하는 품질검사 관리(QA Control Center)
 - `.bat` 및 숨김 실행용 `.vbs` 런처
 
@@ -176,6 +177,14 @@ _OUTPUT/reports/performance/
 - 화면 용어 전용 통합 테스트를 포함한 `tests/integration` 13개 통과
 - 실제 외부 AI 호출 테스트를 제외한 비AI 회귀 테스트 104개 통과, 2개 선택 제외
 - 내부 서비스 ID, API 경로, 모델명은 변경하지 않음
+
+### 서버 관리 종료 감시 추가 검증
+
+- 검증일: 2026-07-17
+- `src`, `tools`, `tests` 전체 Python 문법 검사 통과
+- 서버 관리 종료 흐름을 포함한 통합 테스트 17개 통과
+- 실제 외부 AI 호출 테스트를 제외한 비AI 회귀 테스트 108개 통과, 2개 선택 제외
+- 실행 중인 서버를 실제로 종료하는 시험은 다른 작업에 영향을 줄 수 있어 수행하지 않고 종료 명령을 대체한 테스트로 검증
 
 ### 디렉터리 정렬 검증 참고
 
