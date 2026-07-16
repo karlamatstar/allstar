@@ -8,7 +8,7 @@ import streamlit as st
 
 
 
-st.set_page_config(page_title="AllStar 통합 상담·고객 의견 분석", page_icon="⭐", layout="wide")
+st.set_page_config(page_title="AI Agent QA AllStar", page_icon="⭐", layout="wide")
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
 VOC_API = os.getenv("VOC_API_URL", "http://localhost:8100")
 GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000")
@@ -17,9 +17,23 @@ TIMEOUT = httpx.Timeout(190.0, connect=5.0)
 st.markdown("""
 <style>
 .block-container {max-width: 1500px; padding-top: 1.2rem;}
-.profile-card {border:1px solid #d8dee9;border-radius:14px;padding:12px;min-height:154px;background:#fff;}
-.profile-title {font-size:1.08rem;font-weight:800;margin-bottom:6px;}
-.profile-model {font-size:.85rem;color:#425466;line-height:1.45;}
+.profile-card {
+    box-sizing:border-box;
+    height:16rem;
+    overflow-y:auto;
+    border:1px solid #d8dee9;
+    border-radius:14px;
+    padding:12px;
+    background:#fff;
+    display:flex;
+    flex-direction:column;
+}
+.profile-title {font-size:1.08rem;font-weight:800;margin-bottom:6px;min-height:2.8rem;}
+.profile-summary {min-height:4.2rem;}
+.profile-card hr {width:100%;margin:10px 0;}
+.profile-model {font-size:.85rem;color:#425466;line-height:1.45;margin-top:auto;}
+@media (max-width:1200px) {.profile-card {height:19rem;}}
+@media (max-width:900px) {.profile-card {height:22rem;}}
 .stage {border:1px solid #d8dee9;border-radius:10px;padding:8px;text-align:center;font-size:.82rem;min-height:68px;}
 </style>
 """, unsafe_allow_html=True)
@@ -55,7 +69,7 @@ def reasoning_text(value: str) -> str:
     return labels.get(value, value)
 
 
-st.title("⭐ AllStar 통합 AI 품질 포트폴리오")
+st.title("⭐ AI Agent QA AllStar")
 st.caption("AI 상담 에이전트(AI Agent)와 고객 의견 분석(VOC)을 한 화면에서 실행하고 품질 결과를 확인합니다.")
 
 tab_ai, tab_voc, tab_reports, tab_monitoring = st.tabs(
@@ -97,7 +111,7 @@ with tab_voc:
                 st.markdown(
                     f"<div class='profile-card'><div class='profile-title'>"
                     f"{profile['profile_id']} · {profile['title']}</div>"
-                    f"<div>{profile['summary']}</div><hr>"
+                    f"<div class='profile-summary'>{profile['summary']}</div><hr>"
                     f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / 추론 강도 {reasoning_text(generation['reasoning'])}<br>"
                     f"독립 품질 평가(Judge): {judge['provider']} / {judge['model']} / 추론 강도 {reasoning_text(judge['reasoning'])}</div></div>",
                     unsafe_allow_html=True,

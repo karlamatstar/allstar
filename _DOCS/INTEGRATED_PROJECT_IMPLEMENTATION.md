@@ -27,7 +27,7 @@
 - `/profiles`, `/health`, `/agents/health`, `/metrics`
 - 대화·Judge JSONL 로그 분리 저장
 - A~D 설명과 질문별 프로필을 포함하는 VOC 실시간 Markdown 리포트
-- Streamlit 통합 화면의 AI 상담(AI Agent)·고객 의견 분석(VOC)·결과 보고서(Report)·상태 확인(Monitoring) 영역
+- `AI Agent QA AllStar` Streamlit 통합 화면의 AI 상담(AI Agent)·고객 의견 분석(VOC)·결과 보고서(Report)·상태 확인(Monitoring) 영역
 - VOC 챗봇 A~D 카드와 실제 모델·추론 설정 표시
 - Docker Compose의 Portfolio API, VOC API, VOC 에이전트 6개, Prometheus, Grafana
 - Windows 호스트 통합 화면(Streamlit)을 함께 제어하는 서버 관리(Server Control Center)
@@ -67,6 +67,7 @@
 - 서비스 ID, API 경로, 환경변수, 모델명처럼 프로그램 동작에 필요한 내부 값은 변경하지 않는다.
 - 모델 설정은 `답변 생성`, `독립 품질 평가(Judge)`, `추론 강도` 순서로 표시한다.
 - 추론 설정은 `추론 끔(none)`, `낮음(low)`, `중간(medium)`, `높음(high)`처럼 한국어와 원래 값을 함께 표시한다.
+- VOC A~D 프로필 카드는 같은 해상도에서 네 카드의 높이와 선택 버튼 위치가 모두 같아야 한다. 화면 폭이 좁아지면 네 카드가 동일한 반응형 높이로 함께 늘어나며, 내용이 높이를 넘을 때는 해당 카드 안에서만 스크롤한다.
 - 주요 화면 용어는 다음 기준을 사용한다.
 
 | 쉬운 화면 표기 | 원래 전문용어 | 뜻 |

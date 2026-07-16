@@ -34,12 +34,24 @@ def test_qa_control_explains_test_and_model_terms_in_korean():
 def test_integrated_dashboard_uses_korean_first_navigation_and_explanations():
     source = read("src/allstar/ui/dashboard/streamlit_app.py")
 
+    assert 'page_title="AI Agent QA AllStar"' in source
+    assert 'st.title("⭐ AI Agent QA AllStar")' in source
     assert "AI 상담 챗봇 (AI Agent)" in source
     assert "고객 의견 분석 (VOC)" in source
     assert "통합 결과 보고서 (Report)" in source
     assert "통합 상태 확인 (Monitoring)" in source
     assert "독립 품질 평가 (LLM Judge)" in source
     assert "서버 기능 명세 열기 (Portfolio Swagger)" in source
+
+
+def test_voc_profile_cards_keep_equal_responsive_heights():
+    source = read("src/allstar/ui/dashboard/streamlit_app.py")
+
+    assert "height:16rem" in source
+    assert "@media (max-width:1200px)" in source
+    assert "@media (max-width:900px)" in source
+    assert "class='profile-summary'" in source
+    assert ".profile-model" in source and "margin-top:auto" in source
 
 
 def test_legacy_dashboard_explains_monitoring_and_evaluation_terms():
