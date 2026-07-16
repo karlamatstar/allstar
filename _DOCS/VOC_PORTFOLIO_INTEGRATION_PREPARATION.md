@@ -1336,3 +1336,6 @@ PROMETHEUS_BASE_URL=http://localhost:9090
 7. Server Control Center와 QA Control Center를 별도 GUI로 만든다.
 
 구현 전 사용자 결정은 완료됐다. 위 확정안을 기준으로 1단계부터 진행한다.
+
+> 2026-07-16 구현 시작: 초기 통합 골격과 실행 가능한 1차 기능은
+> `INTEGRATED_PROJECT_IMPLEMENTATION.md`에 구현 완료·부분 구현·미검증 상태를 구분해 기록한다.

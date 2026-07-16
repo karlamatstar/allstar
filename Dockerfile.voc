@@ -1,0 +1,10 @@
+FROM python:3.12-slim
+
+WORKDIR /srv/app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY config/ ./config/
+COPY voc/ ./voc/
+COPY voc_api/ ./voc_api/
+ENV PYTHONPATH=/srv/app:/srv/app/voc
+EXPOSE 8100 6001 6002 6003 6004 6005 6006

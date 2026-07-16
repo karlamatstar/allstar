@@ -1,0 +1,128 @@
+# AllStar 통합 프로젝트 구현 기준서
+
+> 최초 구현일: 2026-07-16
+> 대상: `D:\_Study_Project\_Total`
+> 기준 준비 문서: `VOC_PORTFOLIO_INTEGRATION_PREPARATION.md`
+
+## 1. 현재 구현 상태
+
+### 구현 완료
+
+- 기존 AI Agent의 `app`, `quality`, `monitoring`, `performance`, `scripts`, `tests` 자산 복사
+- 기존 VOC의 6개 에이전트, gRPC, LLM 래퍼, 유틸리티, QA 소스 복사
+- A~D 중앙 모델 프로필 `config/model_profiles.py`
+- 요청별 생성 모델 프로필을 전달하는 gRPC `ModelExecutionConfig`
+- Interpreter·Retriever·Summarizer·Evaluator·Critic·Improver의 중복 단계 호출 제거
+- Summarizer 중심 단일 오케스트레이션
+- VOC FastAPI Gateway `:8100`
+- 비동기 `/chat` 요청과 `/chat/{request_id}/status` 조회
+- `/profiles`, `/health`, `/agents/health`, `/metrics`
+- 대화·Judge JSONL 로그 분리 저장
+- A~D 설명과 질문별 프로필을 포함하는 VOC 실시간 Markdown 리포트
+- Streamlit 통합 화면의 AI Agent·VOC·리포트·모니터링 영역
+- VOC 챗봇 A~D 카드와 실제 모델·추론 설정 표시
+- Docker Compose의 Portfolio API, VOC API, VOC 에이전트 6개, Prometheus, Grafana
+- Windows 호스트 Streamlit을 함께 제어하는 Server Control Center
+- AI Agent QA 8개 구분과 VOC QA를 제공하는 QA Control Center
+- `.bat` 및 숨김 실행용 `.vbs` 런처
+
+### 부분 구현
+
+- 7단계 트래커는 처리 중·완료·실패 상태와 전체 경과 시간을 표시한다.
+- 각 gRPC 단계의 실시간 진행 이벤트를 별도 스트림으로 전송하는 기능은 아직 없다.
+- 완료 뒤 `trace`에는 단계 시간이 남지만 Streamlit 상세 패널은 후속 개선 대상이다.
+- 기존 Portfolio 대시보드 원본은 `dashboard/portfolio_legacy.py`에 보존했으며 통합 화면은 핵심 챗봇·링크 중심으로 먼저 구현했다.
+
+### 아직 실행 검증하지 않음
+
+- 실제 OpenAI·Anthropic API 테스트는 사용자 승인 전이라 실행하지 않았다.
+- Grafana VOC 전용 완성 대시보드 JSON은 후속 작업이다.
+- A~D 교차검증 종합 리포트의 신규 통합 화면은 후속 작업이다.
+
+## 2. 모델 프로필과 실행 원칙
+
+| 프로필 | 답변 생성 | 독립 Judge | 목적 |
+|---|---|---|---|
+| A | OpenAI `gpt-5.6-luna`, none | Anthropic `claude-sonnet-5`, low | 기본 권장 교차 평가 |
+| B | Anthropic `claude-sonnet-4-6`, low | OpenAI `gpt-5.6-terra`, low | 역방향 교차 평가 |
+| C | OpenAI `gpt-5.6-luna`, none | OpenAI `gpt-5.6-terra`, low | OpenAI 계열 역할 분리 |
+| D | Anthropic `claude-sonnet-4-6`, low | Anthropic `claude-sonnet-5`, low | Anthropic 계열 역할 분리 |
+
+- 서버가 실패한 모델을 다른 제공자로 몰래 대체하지 않는다.
+- Judge 실패 시 생성 답변은 유지하고 점수는 N/A로 남긴다.
+- 챗봇 질문은 단발이며 이전 대화를 다음 모델 입력에 전달하지 않는다.
+- 프로필 전체 스냅샷을 질문 로그와 Judge 로그에 저장한다.
+
+## 3. 실행 구조
+
+```text
+Windows 호스트
+  ├─ Server Control Center
+  └─ Streamlit :8501
+        ├─ Portfolio API :8000
+        └─ VOC API :8100
+              ├─ Interpreter :6001
+              ├─ Retriever :6002
+              ├─ Summarizer :6003
+              ├─ Evaluator :6004
+              ├─ Critic :6005
+              └─ Improver :6006
+
+Docker Compose
+  ├─ Portfolio API
+  ├─ VOC API + 에이전트 6개
+  ├─ Prometheus :9090
+  └─ Grafana :3000
+```
+
+## 4. 로그와 리포트
+
+```text
+logs/voc/live/conversations/YYYY-MM-DD.jsonl
+logs/voc/live/judgments/YYYY-MM-DD.jsonl
+logs/services/
+logs/report_manifests/
+quality/reports/voc/live/latest/voc_live_report.md
+quality/reports/voc/live/history/
+quality/reports/voc/testcase/a~d/
+```
+
+실시간 리포트는 VOC 실시간 대화 로그만 사용한다. 테스트케이스 결과와 교차검증 결과를 섞지 않는다.
+
+## 5. 2026-07-16 검증 결과
+
+### 통과
+
+- 전체 Python 문법 검사
+- gRPC Python 코드 재생성
+- Docker Compose 구문 검사 및 서비스 목록 인식
+- Docker Desktop 엔진 `29.6.1` 시작 및 전체 이미지 빌드 성공
+- Docker 서비스 10개 기동 유지 확인
+- Portfolio API `/health` 응답 `200`
+- VOC API `/health` 응답 `200`, 에이전트 6개 `ready=true`
+- Prometheus Health `200`, `ai-agent`와 `voc` 수집 대상 모두 `up`
+- Grafana Health `200`, 데이터베이스 상태 `ok`
+- API 키가 없는 VOC 질문은 `503`으로 차단되어 외부 AI 호출 없음
+- Streamlit 호스트 기동과 `/_stcore/health` 응답 `200 ok`
+- 신규 A~D·VOC API·리포트·gRPC 테스트 50개 통과
+- 실제 AI API 테스트 2개를 제외한 통합 프로젝트 테스트 12개 통과
+- 추가 VOC 비AI 회귀 테스트 21개 통과, 서버 미가동 조건 2개 건너뜀
+- 전체 테스트 14개 수집 성공
+
+### 실행하지 않은 테스트
+
+- `tests/test_negative_cases.py`: 실제 OpenAI API 호출
+- `tests/test_quality_pipeline.py`: 대표 2건 실제 OpenAI API 호출
+- QA GUI의 VOC A~D: 각 프로필 대표 `TC-01`, `TC-02` 실제 API 호출
+
+실제 API 검증 전에 프로필, 대표 케이스 2개, 예상 호출 범위를 다시 확인한다.
+
+## 6. 다음 작업 우선순위
+
+1. API 키 설정 후 A 프로필 대표 2건 실제 검증
+2. 단계별 실시간 이벤트와 상세 결과 패널 구현
+3. VOC Grafana 대시보드 추가
+4. A~D 교차검증 종합 리포트 화면 완성
+5. 실제 GUI 사용 후 Server Control 로그 화면 개선점 반영
+
+AWS 또는 외부 공개 배포 전에는 QA 권한, 인증, 부하 제한, HTTPS, 감사 로그 정책을 다시 검토한다.

@@ -1,0 +1,79 @@
+{
+  "title": "K6 Performance Test",
+  "uid": "k6-performance-test",
+  "panels": [
+    {
+      "title": "실시간 접속 유저 수 (VUs)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(k6_vus)",
+          "legendFormat": "VUs"
+        }
+      ]
+    },
+    {
+      "title": "초당 요청 처리량 (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(k6_http_reqs_total[10s]))",
+          "legendFormat": "RPS"
+        }
+      ]
+    },
+    {
+      "title": "순간 에러 발생 개수 (타임아웃 오류'60초')",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(increase(k6_http_reqs_total{expected_response=\"false\"}[10s])) or (sum(increase(k6_http_reqs_total[10s])) * 0)",
+          "legendFormat": "Errors (per 10s)"
+        }
+      ]
+    },
+    {
+      "title": "총 누적 에러 개수 (타임아웃 오류'60초')",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(k6_http_reqs_total{expected_response=\"false\"}) or (sum(k6_http_reqs_total) * 0)",
+          "legendFormat": "Total Errors"
+        }
+      ]
+    },
+    {
+      "title": "응답 지연 시간 (상위 5%)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "avg(k6_http_req_duration_p95) and sum(rate(k6_http_reqs_total[10s])) > 0",
+          "legendFormat": "p95 Latency (ms)"
+        }
+      ]
+    },
+    {
+      "title": "네트워크 트래픽 (초당 통신량)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(k6_data_received_total[10s]))",
+          "legendFormat": "Received (Bytes/s)"
+        },
+        {
+          "expr": "sum(rate(k6_data_sent_total[10s]))",
+          "legendFormat": "Sent (Bytes/s)"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 36,
+  "timezone": "browser",
+  "refresh": "5s"
+}

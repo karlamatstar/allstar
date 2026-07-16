@@ -1,0 +1,579 @@
+{
+  "title": "AI Agent 발표용 운영 모니터링",
+  "uid": "ai-agent-quality",
+  "schemaVersion": 39,
+  "version": 7,
+  "refresh": "15s",
+  "style": "light",
+  "time": { "from": "now-30m", "to": "now" },
+  "graphTooltip": 1,
+  "tags": ["ai-agent", "quality", "ops"],
+  "templating": { "list": [] },
+  "annotations": { "list": [] },
+  "timepicker": {
+    "refresh_intervals": ["5s", "10s", "15s", "30s", "1m", "5m"]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "1. 오류율 (%) (오류503)",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "min": 0,
+          "max": 100,
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#188a4c", "value": null },
+              { "color": "#c07a12", "value": 5 },
+              { "color": "#c0392b", "value": 20 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(chat_requests_total{status=\"error\"}[1m])) or vector(0)) / clamp_min(sum(rate(chat_requests_total[1m])), 0.000001)",
+          "legendFormat": "error rate"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "3. p95 응답시간",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#188a4c", "value": null },
+              { "color": "#c07a12", "value": 1 },
+              { "color": "#c0392b", "value": 3 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(chat_request_latency_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "2. status별 요청 수 (success/error/fallback)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "status 라벨별 요청 처리량입니다. fallback 라벨이 기록되면 같은 그래프에 자동 표시됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 14,
+            "gradientMode": "opacity",
+            "hideFrom": { "legend": false, "tooltip": false, "viz": false },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 4,
+            "scaleDistribution": { "type": "linear" },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "reqps"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "success" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#188a4c" } }] },
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byName", "options": "fallback" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f59e0b" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(chat_requests_total[1m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "4. retry/unavailable",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "에이전트별 재시도 횟수와 재시도 소진 후 실패(N/A) 누적 카운터입니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/retry.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/unavailable.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        { "expr": "sum(agent_retry_total) by (agent)", "legendFormat": "retry - {{agent}}", "instant": true },
+        { "expr": "sum(agent_unavailable_total) by (agent)", "legendFormat": "unavailable - {{agent}}", "instant": true }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "5. fallback 발생률",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 18 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "chat_requests_total{status=\"fallback\"} 라벨이 기록되면 실제 폴백 발생률을 표시합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#f59e0b" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(chat_requests_total{status=\"fallback\"}[1m])) or vector(0)) / clamp_min(sum(rate(chat_requests_total[1m])), 0.000001)",
+          "legendFormat": "fallback rate"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Judge 판정 분포 (PASS/FAIL/N/A + model별)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 26 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "AI Judge 판정 결과를 decision과 model(api/rule) 라벨별로 보여줍니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*PASS.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#188a4c" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*FAIL.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*REVIEW.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*N\\/A.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#6b7280" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(judge_evaluations_total[5m]) * 300) by (decision, model)",
+          "legendFormat": "{{model}} - {{decision}}"
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "title": "6-1. 폴백 발생률 (Fallback Rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "전체 요청 중 status=\"fallback\"으로 처리된 요청 비율입니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "fixed", "fixedColor": "#f59e0b" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 16,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "single", "sort": "none" }
+      },
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(chat_requests_total{status=\"fallback\"}[1m])) or vector(0)) / clamp_min(sum(rate(chat_requests_total[1m])), 0.000001)",
+          "legendFormat": "fallback rate"
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "title": "6-2. 안전성 채점 점수",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "AI Judge의 safety 축 평균 점수입니다. 모델별로 0~5점 범위를 표시합니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "min": 0,
+          "max": 5,
+          "unit": "short"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "api" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byName", "options": "rule" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#16a34a" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "min"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(judge_axis_score_sum{axis=\"safety\"}[15m])) by (model) / clamp_min(sum(rate(judge_axis_score_count{axis=\"safety\"}[15m])) by (model), 0.000001)",
+          "legendFormat": "{{model}}"
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "title": "6-3. Judge 채점 소요시간",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "AI Judge 채점 처리 시간의 p50/p90/p95입니다.",
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "opacity",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "showPoints": "never",
+            "stacking": { "group": "A", "mode": "none" },
+            "thresholdsStyle": { "mode": "off" }
+          },
+          "unit": "s"
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*p95.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*p90.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*p50.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] }
+        ]
+      },
+      "options": {
+        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))",
+          "legendFormat": "{{model}} - p50"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))",
+          "legendFormat": "{{model}} - p90"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))",
+          "legendFormat": "{{model}} - p95"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "상세 1. 요청 누적 수 (status별)",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 42 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "success" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#188a4c" } }] },
+          { "matcher": { "id": "byName", "options": "error" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byName", "options": "fallback" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#f59e0b" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "orientation": "auto" },
+      "targets": [
+        { "expr": "sum(chat_requests_total) by (status)", "legendFormat": "{{status}}", "instant": true }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "상세 2. p95 응답시간",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 42 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "palette-classic" },
+          "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } },
+          "unit": "s"
+        },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "p95" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(chat_request_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "상세 3. 평균 응답시간",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 50 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "#2563eb" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "s" }, "overrides": [] },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "expr": "rate(chat_request_latency_seconds_sum[5m]) / clamp_min(rate(chat_request_latency_seconds_count[5m]), 0.000001)", "legendFormat": "avg latency" }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "상세 4. 재시도/실패 발생률",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 50 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "ops" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/retry.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/unavailable.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(agent_retry_total[1m])) by (agent)", "legendFormat": "retry - {{agent}}" },
+        { "expr": "sum(rate(agent_unavailable_total[1m])) by (agent)", "legendFormat": "unavailable - {{agent}}" }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "상세 5. Judge 판정 누적 분포",
+      "type": "barchart",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*PASS.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#188a4c" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*FAIL.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*REVIEW.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*N\\/A.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#6b7280" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true }, "orientation": "auto" },
+      "targets": [
+        { "expr": "sum(judge_evaluations_total) by (decision, model)", "legendFormat": "{{model}} - {{decision}}", "instant": true }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "상세 6. Judge 평균 종합점수 (0~25)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 58 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 10, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "min": 0, "max": 25, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "api" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byName", "options": "rule" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8b5cf6" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(judge_score_total_sum[15m])) by (model) / clamp_min(sum(rate(judge_score_total_count[15m])) by (model), 0.000001)", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "상세 7. Judge 항목별 평균점수 (0~5)",
+      "type": "timeseries",
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 66 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 6, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "min": 0, "max": 5, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*safety.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*accuracy.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*groundedness.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#188a4c" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*helpfulness.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*understandability.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8b5cf6" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(judge_axis_score_sum[15m])) by (axis, model) / clamp_min(sum(rate(judge_axis_score_count[15m])) by (axis, model), 0.000001)", "legendFormat": "{{model}} - {{axis}}" }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "상세 8. Safety 평균점수 (0~5)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 76 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "min": 0, "max": 5, "unit": "short" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "api" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byName", "options": "rule" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8b5cf6" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(judge_axis_score_sum{axis=\"safety\"}[15m])) by (model) / clamp_min(sum(rate(judge_axis_score_count{axis=\"safety\"}[15m])) by (model), 0.000001)", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "상세 9. Judge 채점 소요시간 p50/p90/p95",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 76 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 8, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": "/.*p50.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#60a5fa" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*p90.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c07a12" } }] },
+          { "matcher": { "id": "byRegexp", "options": "/.*p95.*/" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#c0392b" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))", "legendFormat": "{{model}} - p50" },
+        { "expr": "histogram_quantile(0.90, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))", "legendFormat": "{{model}} - p90" },
+        { "expr": "histogram_quantile(0.95, sum(rate(judge_evaluation_duration_seconds_bucket[15m])) by (le, model))", "legendFormat": "{{model}} - p95" }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "상세 10. Judge 평균 채점 소요시간",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 84 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "fillOpacity": 12, "lineInterpolation": "smooth", "lineWidth": 2, "showPoints": "never", "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "s" },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "api" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#2563eb" } }] },
+          { "matcher": { "id": "byName", "options": "rule" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "#8b5cf6" } }] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(judge_evaluation_duration_seconds_sum[15m])) by (model) / clamp_min(sum(rate(judge_evaluation_duration_seconds_count[15m])) by (model), 0.000001)", "legendFormat": "{{model}}" }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "상세 11. 현재 지표 원본 스냅샷",
+      "type": "table",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 84 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": { "color": { "mode": "palette-classic" }, "custom": { "align": "auto", "cellOptions": { "type": "auto" }, "inspect": false }, "unit": "short" },
+        "overrides": []
+      },
+      "options": { "cellHeight": "sm", "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
+      "targets": [
+        {
+          "expr": "chat_requests_total or chat_request_latency_seconds_count or chat_request_latency_seconds_sum or agent_retry_total or agent_unavailable_total or judge_evaluations_total or judge_score_total_count or judge_score_total_sum or judge_axis_score_count or judge_axis_score_sum or judge_evaluation_duration_seconds_count or judge_evaluation_duration_seconds_sum",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+[project]
+name = "allstar-ai-voc"
+version = "0.1.0"
+description = "AI Agent 품질 포트폴리오와 VOC 멀티 에이전트 통합 프로젝트"
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=0.116,<1",
+    "fastapi>=0.115,<1",
+    "grpcio>=1.82,<2",
+    "grpcio-tools>=1.82,<2",
+    "httpx>=0.28,<1",
+    "mcp>=1.28,<2",
+    "openai>=2.45,<3",
+    "pandas>=2.2,<3",
+    "plotly>=6,<7",
+    "prometheus-client>=0.22,<1",
+    "protobuf>=7.35,<8",
+    "pydantic>=2.11,<3",
+    "python-dotenv>=1.1,<2",
+    "streamlit>=1.50,<2",
+    "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+qa = ["pytest>=9.1,<10"]
+reports = ["python-docx>=1.2,<2", "python-pptx>=1.0,<2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "voc/quality_diagnosis"]
+addopts = "-p no:cacheprovider"

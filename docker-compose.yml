@@ -1,0 +1,116 @@
+x-voc-common: &voc-common
+  build:
+    context: .
+    dockerfile: Dockerfile.voc
+  restart: unless-stopped
+  environment: &voc-environment
+    OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    VOC_OPENAI_GENERATION_MODEL: ${VOC_OPENAI_GENERATION_MODEL:-gpt-5.6-luna}
+    VOC_OPENAI_JUDGE_MODEL: ${VOC_OPENAI_JUDGE_MODEL:-gpt-5.6-terra}
+    VOC_ANTHROPIC_GENERATION_MODEL: ${VOC_ANTHROPIC_GENERATION_MODEL:-claude-sonnet-4-6}
+    VOC_ANTHROPIC_JUDGE_MODEL: ${VOC_ANTHROPIC_JUDGE_MODEL:-claude-sonnet-5}
+    VOC_OPENAI_GENERATION_REASONING: ${VOC_OPENAI_GENERATION_REASONING:-none}
+    VOC_OPENAI_JUDGE_REASONING: ${VOC_OPENAI_JUDGE_REASONING:-low}
+    VOC_ANTHROPIC_GENERATION_EFFORT: ${VOC_ANTHROPIC_GENERATION_EFFORT:-low}
+    VOC_ANTHROPIC_JUDGE_EFFORT: ${VOC_ANTHROPIC_JUDGE_EFFORT:-low}
+    VOC_ANTHROPIC_THINKING: ${VOC_ANTHROPIC_THINKING:-disabled}
+    A2A_VOC_CSV: /srv/app/voc/voc.csv
+    INTERPRETER_ENDPOINT: voc-interpreter:6001
+    RETRIEVER_ENDPOINT: voc-retriever:6002
+    SUMMARIZER_ENDPOINT: voc-summarizer:6003
+    EVALUATOR_ENDPOINT: voc-evaluator:6004
+    CRITIC_ENDPOINT: voc-critic:6005
+    IMPROVER_ENDPOINT: voc-improver:6006
+    PYTHONUNBUFFERED: "1"
+    PYTHONIOENCODING: utf-8
+
+services:
+  portfolio-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.portfolio
+    ports:
+      - "8000:8000"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${PORTFOLIO_OPENAI_MODEL:-gpt-5.6-terra}
+    volumes:
+      - ./quality/reports:/srv/app/quality/reports
+    restart: unless-stopped
+
+  voc-api:
+    <<: *voc-common
+    command: ["uvicorn", "voc_api.main:app", "--host", "0.0.0.0", "--port", "8100"]
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./logs:/srv/app/logs
+      - ./quality/reports:/srv/app/quality/reports
+    depends_on:
+      - voc-interpreter
+      - voc-retriever
+      - voc-summarizer
+      - voc-evaluator
+      - voc-critic
+      - voc-improver
+
+  voc-interpreter:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.interpreter"]
+    ports: ["6001:6001"]
+
+  voc-retriever:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.retriever"]
+    ports: ["6002:6002"]
+
+  voc-summarizer:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.summarizer"]
+    ports: ["6003:6003"]
+
+  voc-evaluator:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.evaluator"]
+    ports: ["6004:6004"]
+
+  voc-critic:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.critic"]
+    ports: ["6005:6005"]
+
+  voc-improver:
+    <<: *voc-common
+    working_dir: /srv/app/voc
+    command: ["python", "-u", "-m", "agents.improver"]
+    ports: ["6006:6006"]
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ["9090:9090"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-remote-write-receiver
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on: [portfolio-api, voc-api]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_SECURITY_ALLOW_EMBEDDING: "true"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    depends_on: [prometheus]
+    restart: unless-stopped
