@@ -47,14 +47,12 @@ SYSTEM_PROMPT = f"""당신은 AI 교육과정 안내 챗봇입니다.
 """
 
 
-def get_answer_from_api_agent(user_question: str, simulate_api_disconnect: bool = False) -> str:
+def get_answer_from_api_agent(user_question: str) -> str:
     response = None
     last_error: Exception | None = None
     for attempt in range(1, API_AGENT_MAX_ATTEMPTS + 1):
         try:
             with openai_call_semaphore:
-                if simulate_api_disconnect:
-                    raise ConnectionError("의도적 API 연결 끊김 시뮬레이션 (503 에러 유도)")
                 response = _client().responses.create(
                     model=OPENAI_MODEL,
                     input=[

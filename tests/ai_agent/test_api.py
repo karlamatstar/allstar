@@ -10,7 +10,7 @@ def test_chat_returns_answer_for_valid_question(monkeypatch):
     monkeypatch.setattr(
         main_module,
         "get_answer_from_api_agent",
-        lambda question, simulate_api_disconnect=False: "이 교육과정은 총 320시간입니다.",
+        lambda question: "이 교육과정은 총 320시간입니다.",
     )
     before = main_module.chat_requests_total.labels(status="success")._value.get()
     response = client.post(
@@ -51,6 +51,30 @@ def test_api_unavailable_is_counted_once_as_fallback(monkeypatch):
 def test_chat_rejects_empty_question():
     response = client.post("/chat", json={"question": ""})
     assert response.status_code == 422
+
+
+def test_chat_has_no_magic_word_fault_injection(monkeypatch):
+    answers = []
+
+    def answer(question):
+        answers.append(question)
+        return f"정상 답변: {question}"
+
+    monkeypatch.setattr(main_module, "get_answer_from_api_agent", answer)
+    for question in ("퇴근 가능한가요?", "강사에게 문의할 수 있나요?"):
+        response = client.post(
+            "/chat",
+            json={"question": question, "is_latency_test": True},
+        )
+        assert response.status_code == 200
+        assert response.json()["answer"] == f"정상 답변: {question}"
+
+    assert answers == ["퇴근 가능한가요?", "강사에게 문의할 수 있나요?"]
+
+
+def test_chat_request_schema_omits_removed_fault_injection_field():
+    schema = client.get("/openapi.json").json()["components"]["schemas"]["ChatRequest"]
+    assert "simulate_api_disconnect" not in schema["properties"]
 
 
 def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):

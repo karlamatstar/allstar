@@ -7,12 +7,13 @@ APP = (ROOT / "src" / "allstar" / "ui" / "dashboard" / "streamlit_app.py").read_
 VIEWS = (ROOT / "src" / "allstar" / "ui" / "dashboard" / "views.py").read_text(encoding="utf-8")
 
 
-def test_top_navigation_has_four_left_and_two_right_tabs():
+def test_top_navigation_has_four_left_and_three_right_tabs():
     labels = [
         "AI 에이전트 챗봇",
         "VOC 챗봇",
         "모니터링",
         "보고서 모음",
+        "K6 부하 테스트",
         "AI 에이전트 테스트케이스",
         "VOC 테스트케이스",
     ]
@@ -110,13 +111,54 @@ def test_all_streamlit_external_api_entrypoints_use_required_confirmation_box():
         "voc_chat_api_confirm",
         "ai_run_confirm",
         "voc_all_confirm",
+        "k6_api_performance_confirm",
     ):
         assert f'"{key}"' in VIEWS
-    assert VIEWS.count("_required_api_confirmation(") == 5  # 함수 정의 1회 + 사용 4회
+    assert VIEWS.count("_required_api_confirmation(") == 6  # 함수 정의 1회 + 사용 5회
     assert "disabled=not api_confirmed" in VIEWS
     assert "disabled=bool(pending) or not api_confirmed" in VIEWS
     assert '[class*="st-key-required_api_confirm_"]' in APP
     assert VIEWS.index('"voc_chat_api_confirm"') < VIEWS.index("_render_profile_cards(list(profiles)")
+
+
+def test_k6_top_tab_has_seven_cards_without_child_tabs():
+    assert "render_k6_load_test" in APP
+    for label in (
+        "기본 동작 시험",
+        "일반 부하 시험",
+        "무작위 요청 시험",
+        "한계 부하 시험",
+        "순간 급증 시험",
+        "장애·기능 검증 시험",
+        "서버 연결 성능 종합 시험",
+    ):
+        assert label in VIEWS or label in (ROOT / "src" / "allstar" / "ui" / "dashboard" / "k6_load_runner.py").read_text(encoding="utf-8")
+    assert "_render_k6_load_test_fragment" in VIEWS
+    assert "st.code(output[-50000:]" in VIEWS
+    assert 'st.container(height=360, border=True, autoscroll=True' in VIEWS
+    assert "시험 중지" in VIEWS
+    assert "_scroll_to_k6_run_once" in VIEWS
+    assert '@media (max-width:1399px) and (min-width:761px)' in APP
+    assert 'flex:1 1 calc(50% - 1.1rem) !important' in APP
+    assert '@media (max-width:760px)' in APP
+    assert 'flex:1 1 100% !important' in APP
+    assert '[class*="st-key-k6_card_"] > [class*="st-key-run_k6_"] {margin-top:auto;}' in APP
+    assert 'grid-template-columns:2.35rem minmax(0,1fr) 2.35rem !important' in APP
+    assert '[data-testid="stNumberInputField"]' in APP
+    assert '[data-testid="stNumberInputStepDown"]' in APP
+    assert '[data-testid="stNumberInputStepUp"]' in APP
+    assert 'grid-column:1 !important' in APP
+    assert 'grid-column:2 !important' in APP
+    assert 'grid-column:3 !important' in APP
+    assert "args=(vus_key, K6_MIN_VUS, K6_MAX_VUS)" in VIEWS
+    assert "args=(duration_key, K6_MIN_DURATION, K6_MAX_DURATION)" in VIEWS
+    assert "def _clamp_k6_number_input" in VIEWS
+    assert "def _enable_k6_number_hold_repeat" in VIEWS
+    assert "__allstarK6HoldRepeatInstalled" in VIEWS
+    assert "const reachedBoundary = (button)" in VIEWS
+    assert "event.stopImmediatePropagation()" in VIEWS
+    assert "root.setTimeout" in VIEWS and "root.setInterval(repeat, 100)" in VIEWS
+    assert '["pointerup", "pointercancel", "mouseup", "touchend"]' in VIEWS
 
 
 def test_voc_has_seven_clickable_stage_definitions():

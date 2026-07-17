@@ -1,19 +1,126 @@
-# AllStar AI Agent + VOC 통합 프로젝트
+# AI Agent QA AllStar
 
-기존 AI Agent 품질 포트폴리오와 VOC 멀티 에이전트를 하나의 실행·로그·리포트 체계로 통합한 프로젝트다.
+AI 에이전트와 VOC 멀티 에이전트의 실시간 대화, 테스트케이스 품질검사, K6 부하 시험, Grafana 모니터링, 자동 보고서를 하나의 대시보드로 통합한 프로젝트다.
 
-## 서비스 구성
+현재 기준일은 2026-07-18이며, 통합 화면의 사용자 실행은 현재 등록된 테스트케이스 전체를 사용한다.
 
-- AI Agent FastAPI: `http://localhost:8000`
-- VOC FastAPI Gateway: `http://localhost:8100`
-- Streamlit 통합 화면: `http://localhost:8501`
-- VOC gRPC 에이전트: `6001~6006`
-- Prometheus: `http://localhost:9090`
-- Grafana: `http://localhost:3000`
+## 통합 대시보드
 
-Streamlit은 Windows 호스트에서 실행하고, 나머지 서버는 Docker Compose로 실행한다. Server Control Center에서 함께 시작·종료하고 서비스별 로그를 확인할 수 있다.
+Streamlit 통합 화면은 `http://localhost:8501`에서 열며 다음 7개 상위 탭으로 구성한다.
 
-## 최초 준비
+| 구분 | 상위 탭 | 주요 기능 |
+|---|---|---|
+| 운영 | AI 에이전트 챗봇 | 실시간 대화와 API·규칙 기반 독립 품질평가 |
+| 운영 | VOC 챗봇 | A~D 모델 프로필 선택, 7단계 처리, 9항목·100점 채점 |
+| 운영 | 모니터링 | Grafana 운영 화면 4개 확인 |
+| 운영 | 보고서 모음 | AI·VOC·성능·장애 보고서 6개 확인 |
+| 시험 | K6 부하 테스트 | 부하·장애·서버 연결 성능 시험 7개 실행 |
+| 시험 | AI 에이전트 테스트케이스 | 테스트케이스 관리·전체 실행·품질 분석 |
+| 시험 | VOC 테스트케이스 | 테스트케이스 관리와 A~D 프로필별 전체 실행 |
+
+화면 폭이 좁으면 상위·하위 탭은 가로로 스크롤된다. 대시보드 본문은 브라우저의 라이트·다크 설정을 따르고, 포함된 Grafana 화면도 같은 테마로 전환된다.
+
+### AI 에이전트 챗봇
+
+하위 탭은 다음 5개다.
+
+1. 챗봇과 대화
+2. 대화 로그
+3. 품질 현황
+4. 유형별 비교
+5. 대화별 채점 상세
+
+사용자 질문은 오른쪽, AI 답변은 왼쪽에 표시한다. 답변 생성 후 백그라운드에서 API 기반 답변과 규칙 기반 답변을 독립 채점하고, 대화 로그·품질 화면·최신 보고서를 자동 갱신한다.
+
+### VOC 챗봇
+
+AI 에이전트 챗봇과 동일한 5개 하위 탭을 사용한다. 질문마다 A~D 모델 프로필을 선택할 수 있으며 다음 내용을 함께 확인한다.
+
+- 생성 모델과 독립 품질평가 모델(Judge)
+- 질문 의도 분석부터 독립 품질평가까지 7단계 처리 상태와 상세 결과
+- Interpreter·Retriever·Summarizer·Evaluator·Critic·Improver·Agent 연계·장애 대응·성능을 포함한 9항목·100점 품질 결과
+- 같은 질문에 대한 A~D 결과 묶음, 유형별 비교와 최신순 채점 상세
+
+챗봇 질문은 단발 처리이며 이전 대화 내용을 다음 질문의 모델 입력으로 사용하지 않는다.
+
+### 모니터링
+
+다음 Grafana 화면 4개를 대시보드 안에서 바로 확인한다.
+
+1. AI 에이전트 실시간 운영
+2. K6 성능 부하 시험
+3. VOC 챗봇 실시간 운영
+4. VOC QA·A~D 비교
+
+Prometheus가 수집한 요청 수, 오류율, 응답시간, Judge 판정·점수·처리시간과 A~D 테스트케이스 결과를 표시한다. 데이터가 없을 때는 수집 전 상태를 안내하며 Grafana 화면은 새 창으로도 열 수 있다.
+
+### 보고서 모음
+
+다음 최신 보고서 6개를 파일 경로를 찾지 않고 대시보드에서 확인한다.
+
+1. AI 에이전트 챗봇 보고서
+2. AI 에이전트 테스트케이스 보고서
+3. VOC 챗봇 보고서
+4. VOC 테스트케이스 보고서
+5. 서버 연결 성능 보고서
+6. 장애·기능 검증 보고서
+
+VOC 테스트케이스 보고서는 `교차 테스트 (A)`부터 `교차 테스트 (D)`와 `종합 비교`로 나뉜다. 로그는 실행마다 누적하고 최신 정식 보고서는 정상 완료 결과로 갱신한다. 실행 중단·서버 종료·API 실패가 발생하면 확보된 원문 로그는 보존하되 마지막 정상 보고서를 덮어쓰지 않는다.
+
+### K6 부하 테스트
+
+하위 탭 없이 다음 7개 시험 카드를 제공한다.
+
+1. 기본 동작 시험
+2. 일반 부하 시험
+3. 무작위 요청 시험
+4. 한계 부하 시험
+5. 순간 급증 시험
+6. 장애·기능 검증 시험
+7. 서버 연결 성능 종합 시험
+
+시험을 시작하면 실행 화면과 고정 높이 실시간 터미널이 아래에 펼쳐지고 최신 출력으로 자동 스크롤된다. 실행 중에는 다른 시험의 시작을 잠그며 현재 시험은 중지할 수 있다.
+
+- 가상 인원: 1~999명
+- 실행 시간: 10~600초
+- 숫자 입력: `[-] [숫자] [+]`, 길게 누르면 빠르게 연속 증감
+- 범위를 벗어나 직접 입력하면 최소·최댓값으로 자동 보정
+- 서버 연결 성능 종합 시험만 실제 외부 AI API 비용 확인 후 활성화
+- 직접 부하 K6 5종은 원문 로그와 Prometheus·Grafana 지표를 남기고 별도 사용자용 보고서는 만들지 않음
+- 장애·기능 검증과 서버 연결 성능 종합 시험의 정식 보고서는 유지
+
+K6는 Streamlit이 실행되는 컴퓨터에 설치돼 있어야 한다. 현재처럼 Streamlit을 Windows 호스트에서 실행하면 Windows K6를 사용한다. Streamlit을 Docker 안에서 실행하도록 바꾸면 Windows 호스트의 K6를 자동으로 사용할 수 없으므로 해당 이미지에 Linux용 K6를 설치하거나 별도 K6 실행 서비스를 연결해야 한다.
+
+### AI 에이전트 테스트케이스
+
+하위 탭은 다음 5개다.
+
+1. 테스트케이스 관리
+2. 테스트케이스 실행
+3. 배치 품질 현황
+4. 유형별 비교
+5. 케이스 상세
+
+관리 화면에서 현재 테스트케이스를 확인·수정·추가·삭제할 수 있다. 실행 화면은 현재 등록된 전체 테스트케이스를 API 방식과 규칙 기반 방식으로 각각 처리한다. 2026-07-18 현재 등록 수는 6건이며, 관리 화면에서 목록이 바뀌면 다음 실행 범위도 함께 바뀐다.
+
+### VOC 테스트케이스
+
+하위 탭은 `테스트케이스 관리`와 `테스트케이스 실행` 2개다. 2026-07-18 현재 10건이 등록돼 있으며 A·B·C·D 중 하나를 선택하면 해당 프로필로 현재 등록된 전체 테스트케이스를 실행한다.
+
+실행 중에는 현재 테스트케이스와 7단계 진행 상태를 표시한다. 완료 후 각 단계를 선택해 실제 입력·검색·요약·평가·검토·개선·Judge 결과를 확인할 수 있다. A~D 실행은 한 번에 하나만 허용한다.
+
+## VOC A~D 모델 프로필
+
+| 프로필 | 답변 생성 | 독립 품질평가(Judge) | 목적 |
+|---|---|---|---|
+| A | OpenAI `gpt-5.6-luna` · 추론 끔(none) | Anthropic `claude-sonnet-5` · 낮음(low) | 기본 권장 교차 평가 |
+| B | Anthropic `claude-sonnet-4-6` · 낮음(low) | OpenAI `gpt-5.6-terra` · 낮음(low) | 역방향 교차 평가 |
+| C | OpenAI `gpt-5.6-luna` · 추론 끔(none) | OpenAI `gpt-5.6-terra` · 낮음(low) | OpenAI 계열 역할 분리 |
+| D | Anthropic `claude-sonnet-4-6` · 낮음(low) | Anthropic `claude-sonnet-5` · 낮음(low) | Anthropic 계열 역할 분리 |
+
+선택 프로필, 생성 모델, Judge 모델과 추론 설정은 질문·채점 로그와 보고서에 함께 기록한다. Judge를 사용할 수 없으면 답변 실패와 구분해 `N/A`로 남긴다.
+
+## 실행 전 준비
 
 ```powershell
 cd D:\_Study_Project\_Total
@@ -23,53 +130,61 @@ python -m venv .venv
 Copy-Item .env.example .env
 ```
 
-`.env`에 필요한 API 키를 입력한다. `.env`는 Git에 포함되지 않는다.
+`.env`에 필요한 OpenAI·Anthropic API 키를 입력한다. 비밀값이 들어 있는 `.env`는 Git에 포함하지 않는다.
 
-## 실행
+## 서버 시작
 
 1. Docker Desktop을 실행한다.
 2. `RUN\start_servers.bat`를 더블클릭한다.
-3. Server Control Center에서 `전체 시작`을 누른다.
-4. Streamlit 행의 `접속` 버튼을 누른다.
+3. 서버 관리에서 `전체 시작`을 누른다.
+4. `통합 대시보드` 바로가기 버튼으로 화면을 연다.
 
-CMD 창의 순간적인 표시도 피하려면 `RUN\start_servers_hidden.vbs`를 실행한다. QA 도구는 `RUN\start_qa.bat` 또는 `RUN\start_qa_hidden.vbs`로 연다.
+CMD 창의 순간적인 표시도 피하려면 `RUN\start_servers_hidden.vbs`를 실행한다. 품질검사 관리는 `RUN\start_qa.bat` 또는 `RUN\start_qa_hidden.vbs`로 연다.
 
-## 디렉터리 구조
+서버 관리의 `서버 전체 종료`는 프로젝트 서버를 종료하고 Docker Desktop은 유지한다. `Docker 포함 전체 종료`는 프로젝트 서버를 종료한 뒤 Docker Desktop까지 종료한다.
+
+## 서비스 주소
+
+| 서비스 | 주소 |
+|---|---|
+| AI 에이전트 기능 명세 | `http://localhost:8000/docs` |
+| VOC 기능 명세 | `http://localhost:8100/docs` |
+| 통합 대시보드 | `http://localhost:8501` |
+| Prometheus | `http://localhost:9090` |
+| Grafana | `http://localhost:3000` |
+| VOC gRPC 에이전트 | `localhost:6001~6006` |
+
+## 로그와 보고서
+
+- 원본 로그: `_OUTPUT/logs/`
+- 최신·이력 보고서: `_OUTPUT/reports/`
+- 보고서 연결 정보: `_OUTPUT/reports/manifests/`
+- 서비스·런처 로그: `_OUTPUT/logs/services/`
+
+대화·채점·QA 실행 로그는 계속 누적한다. 챗봇 보고서는 채점 완료 후 자동 갱신되며, 테스트케이스 정식 보고서는 등록된 전체 범위가 정상 완료된 경우에만 최신본으로 승격한다.
+
+## 프로젝트 구조
 
 - 제품 코드: `src/allstar/`
-- Server·QA GUI와 실행 보조 도구: `tools/`
-- Docker·모니터링·성능 시험 설정: `ops/`
+- 서버·품질검사 관리와 실행 보조 도구: `tools/`
+- Docker·Prometheus·Grafana·K6 설정: `ops/`
 - 자동 테스트: `tests/`
 - 더블클릭 실행 파일: `RUN/`
-- 원본 로그: `_OUTPUT/logs/`
-- 사람이 확인하는 리포트: `_OUTPUT/reports/`
+- 실행 산출물: `_OUTPUT/`
 - 설계·운영 문서: `_DOCS/`
 
-모든 Python 패키지는 `allstar.*` 이름을 사용한다. 공통 경로는 `src/allstar/shared/paths.py`, A~D 모델 정의는 `src/allstar/shared/model_profiles.py`에서 관리한다.
+공통 경로는 `src/allstar/shared/paths.py`, A~D 모델 프로필은 `src/allstar/shared/model_profiles.py`에서 관리한다.
 
-## VOC A~D 프로필
+## 현재 검증 상태
 
-| 프로필 | 생성 | 독립 Judge |
-|---|---|---|
-| A | OpenAI `gpt-5.6-luna` · none | Anthropic `claude-sonnet-5` · low |
-| B | Anthropic `claude-sonnet-4-6` · low | OpenAI `gpt-5.6-terra` · low |
-| C | OpenAI `gpt-5.6-luna` · none | OpenAI `gpt-5.6-terra` · low |
-| D | Anthropic `claude-sonnet-4-6` · low | Anthropic `claude-sonnet-5` · low |
+- AI 에이전트 등록 전체 6건의 API·규칙 기반 배치 실행 완료
+- VOC A·B·C·D 각각 등록 전체 10건 실행과 프로필별 정식 보고서·종합 비교 확인
+- 통합 대시보드 상위 7개 탭과 주요 반응형 화면 브라우저 확인
+- 외부 AI 실행 경로를 제외한 최신 자동 회귀: 250개 통과, 환경 조건 1개 건너뜀, 2개 선택 제외
+- 인위적으로 503·504 오류를 만들던 챗봇 특수어 규칙과 전용 연결 끊김 시험 제거
 
-챗봇에서 A~D를 선택하며, 질문별 선택 프로필·생성 모델·Judge 모델·추론 설정은 로그와 리포트에 함께 기록한다.
+외부 AI API를 사용하는 화면은 실행 전에 전체 범위, 모델 프로필과 비용 발생 가능성을 확인해야 한다. 테스트케이스 수는 관리 화면의 현재 등록 상태를 기준으로 하며 2건으로 고정하지 않는다.
 
-## 비AI 검증
+## 문서
 
-```powershell
-.\.venv\Scripts\python.exe -m compileall -q src tools tests
-.\.venv\Scripts\python.exe -m pytest -q `
-  --ignore=tests/ai_agent/test_negative_cases.py `
-  --ignore=tests/ai_agent/test_evaluation_pipeline.py `
-  --ignore=tests/voc/evaluation/test_pipeline_e2e.py `
-  -k "not end_to_end"
-docker compose config --quiet
-```
-
-실제 AI API 테스트는 대표 케이스 `TC-01`, `TC-02`만 사용한다. QA GUI에서 실험군과 예상 호출 범위를 확인한 뒤 별도로 실행한다.
-
-상세 구조와 구현 상태는 `_DOCS/README.md`에서 안내한다.
+전체 진행 상태와 기능별 세부 기준은 [`_DOCS/README.md`](_DOCS/README.md)에서 확인한다. 구현·검증·남은 작업의 기준은 [`_DOCS/PROJECT_PROGRESS_CHECKLIST.md`](_DOCS/PROJECT_PROGRESS_CHECKLIST.md)다.

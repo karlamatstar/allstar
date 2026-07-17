@@ -223,13 +223,39 @@ def _report_content(
     durations = [value for value in durations if value is not None]
     profiles = list(PROFILE_SNAPSHOTS.values())
 
+    guide = [
+        "### A~D 모델 프로필",
+        "",
+        "| 프로필 | 의미 | 생성 모델 | 평가 모델 |",
+        "|---|---|---|---|",
+    ]
+    for profile in profiles:
+        generation = profile["generation"]
+        judge = profile["judge"]
+        guide.append(
+            f"| {profile['profile_id']} · {profile['title']} | {profile['summary']} | "
+            f"{generation['provider']} / {generation['model']} / {generation['reasoning']} | "
+            f"{judge['provider']} / {judge['model']} / {judge['reasoning']} |"
+        )
+    guide.extend(["", "### 독립 품질평가 기준", "", "| 평가 항목 | 최대 점수 |", "|---|---:|"])
+    for criterion in RUBRIC["criteria"]:
+        guide.append(f"| {criterion['name']} | {criterion['max_score']} |")
+    guide.extend([
+        "",
+        "판정 기준: 90점 이상 배포 가능 / 80~89점 조건부 배포 / 70~79점 주요 개선 필요 / 69점 이하 배포 보류 / 즉시 보류 조건은 점수와 무관하게 배포 보류(즉시)",
+        "",
+    ])
+
     lines = [
         "# VOC 실시간 대화 품질 리포트",
         "",
         "> 실제 VOC 챗봇 대화와 A~D 독립 Judge 결과를 집계한 최신 보고서입니다. "
         "시각은 한국 시간(KST), 품질 평가는 9항목·100점 기준입니다.",
         "",
-        "## 1. 한눈에 보는 품질 현황",
+        "## 1. 모델 프로필과 품질평가 기준",
+        "",
+        *guide,
+        "## 2. 한눈에 보는 품질 현황",
         "",
         f"- 생성 시각: {generated_at:%Y-%m-%d %H:%M:%S} (KST)",
         f"- 집계 기간: {_period(valid_rows)}",
@@ -265,7 +291,7 @@ def _report_content(
 
     lines.extend([
         "",
-        "## 2. 품질·판정·처리시간 그래프",
+        "## 3. 품질·판정·처리시간 그래프",
         "",
         f"![A~D 프로필별 품질 판정 분포]({_chart_target(file_path, chart_paths, 'decisions')})",
         "",
@@ -279,7 +305,7 @@ def _report_content(
 
     attention = sorted([row for row in valid_rows if _needs_attention(row)], key=lambda row: _timestamp(row.get("finished_at") or row.get("timestamp")) or datetime.min.replace(tzinfo=KST), reverse=True)
     attention_body = _detail_lines(attention) if attention else ["- 확인이 필요한 90점 미만·N/A·실패 결과가 없습니다."]
-    lines.extend(["## 3. 확인이 필요한 채점 결과", ""])
+    lines.extend(["## 4. 확인이 필요한 채점 결과", ""])
     lines.extend(_details(f"90점 미만·N/A·실패 상세 목록 열기 ({len(attention)}건)", attention_body))
 
     recent = sorted(valid_rows, key=lambda row: _timestamp(row.get("finished_at") or row.get("timestamp")) or datetime.min.replace(tzinfo=KST), reverse=True)[:50]
@@ -295,32 +321,8 @@ def _report_content(
         )
     if not recent:
         recent_body.append("| - | - | 저장된 유효 대화가 없습니다 | N/A | N/A |")
-    lines.extend(["## 4. 채팅 및 채점 목록", ""])
+    lines.extend(["## 5. 채팅 및 채점 목록", ""])
     lines.extend(_details(f"최근 채팅·채점 목록 열기 ({len(recent)}행, 최대 50행)", recent_body))
-
-    guide = [
-        "### A~D 모델 프로필",
-        "",
-        "| 프로필 | 의미 | 생성 모델 | 평가 모델 |",
-        "|---|---|---|---|",
-    ]
-    for profile in profiles:
-        generation = profile["generation"]
-        judge = profile["judge"]
-        guide.append(
-            f"| {profile['profile_id']} · {profile['title']} | {profile['summary']} | "
-            f"{generation['provider']} / {generation['model']} / {generation['reasoning']} | "
-            f"{judge['provider']} / {judge['model']} / {judge['reasoning']} |"
-        )
-    guide.extend(["", "### 독립 품질평가 기준", "", "| 평가 항목 | 최대 점수 |", "|---|---:|"])
-    for criterion in RUBRIC["criteria"]:
-        guide.append(f"| {criterion['name']} | {criterion['max_score']} |")
-    guide.extend([
-        "",
-        "판정 기준: 90점 이상 배포 가능 / 80~89점 조건부 배포 / 70~79점 주요 개선 필요 / 69점 이하 배포 보류 / 즉시 보류 조건은 점수와 무관하게 배포 보류(즉시)",
-    ])
-    lines.extend(["## 5. 모델 프로필과 품질평가 기준", ""])
-    lines.extend(_details("A~D 모델과 9항목·100점 기준 열기", guide))
 
     if invalid_rows:
         invalid_body = [

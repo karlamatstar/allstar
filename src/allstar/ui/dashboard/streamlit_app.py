@@ -5,6 +5,7 @@ import streamlit as st
 from allstar.ui.dashboard.views import (
     render_ai_chat,
     render_ai_testcases,
+    render_k6_load_test,
     render_monitoring,
     render_reports,
     render_voc_chat,
@@ -240,6 +241,77 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
 [class*="st-key-stage_arrow_"] {flex:0 0 auto !important; width:26px !important; min-width:26px !important; max-width:26px !important;}
 [class*="st-key-stage_top_arrow_"] > div,
 [class*="st-key-stage_arrow_"] > div {width:26px !important; min-width:26px !important;}
+.k6-env-grid {display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.65rem; margin-bottom:.55rem;}
+.k6-env-item {border:1px solid var(--allstar-border); border-radius:12px; padding:.72rem .82rem; background:var(--allstar-card); display:flex; flex-direction:column; gap:.15rem;}
+.k6-env-item b {display:flex; align-items:center; gap:.42rem; font-size:.9rem;}
+.k6-env-item b span {width:.7rem; height:.7rem; border-radius:50%; background:#8b95a5; box-shadow:0 0 0 3px rgba(139,149,165,.14);}
+.k6-env-ready b span {background:#188a4c; box-shadow:0 0 0 3px rgba(24,138,76,.14);}
+.k6-env-offline b span {background:#8b95a5;}
+.k6-env-item strong {font-size:.8rem; color:var(--allstar-muted);}
+.k6-env-item small {font-size:.74rem; color:var(--allstar-muted); overflow-wrap:anywhere;}
+[class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] {
+    align-items:stretch !important;
+}
+[class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    display:flex !important;
+}
+[class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {
+    width:100%; height:100%;
+}
+[class*="st-key-k6_card_row_"] [data-testid="stColumn"] > [data-testid="stVerticalBlock"] > [data-testid="stLayoutWrapper"]:has(> [class*="st-key-k6_card_"]) {
+    flex:1 1 auto !important; height:100%;
+}
+[class*="st-key-k6_card_"] {height:100%; min-height:25.5rem;}
+[class*="st-key-k6_card_"] [data-testid="stVerticalBlockBorderWrapper"] {height:100%; min-height:25.5rem; border-radius:14px !important; background:var(--allstar-card) !important;}
+[class*="st-key-k6_card_"] [data-testid="stVerticalBlock"] {height:100%;}
+[class*="st-key-k6_card_"] > [class*="st-key-run_k6_"] {margin-top:auto;}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputContainer"] {
+    display:grid !important;
+    grid-template-columns:2.35rem minmax(0,1fr) 2.35rem !important;
+    align-items:stretch !important;
+    overflow:hidden;
+}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputField"] {
+    grid-column:2 !important;
+    grid-row:1 !important;
+    min-width:0 !important;
+    width:100% !important;
+    text-align:center !important;
+}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputContainer"] > div:has(> [data-testid="stNumberInputStepDown"]) {
+    display:contents !important;
+}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputStepDown"],
+[class*="st-key-k6_card_"] [data-testid="stNumberInputStepUp"] {
+    grid-row:1 !important;
+    width:100% !important;
+    height:100% !important;
+    min-height:2.5rem !important;
+    border-radius:0 !important;
+}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputStepDown"] {
+    grid-column:1 !important;
+    border-right:1px solid var(--allstar-border) !important;
+}
+[class*="st-key-k6_card_"] [data-testid="stNumberInputStepUp"] {
+    grid-column:3 !important;
+    border-left:1px solid var(--allstar-border) !important;
+}
+[class*="st-key-k6_card_"][class*="_running"] [data-testid="stVerticalBlockBorderWrapper"] {border:2px solid #2f80ed !important; background:linear-gradient(145deg,rgba(47,128,237,.18),var(--allstar-card)) !important; box-shadow:0 0 0 3px rgba(47,128,237,.10);}
+[class*="st-key-k6_card_"][class*="_completed"] [data-testid="stVerticalBlockBorderWrapper"] {border:2px solid #188a4c !important; background:linear-gradient(145deg,rgba(24,138,76,.13),var(--allstar-card)) !important;}
+[class*="st-key-k6_card_"][class*="_failed"] [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-k6_card_"][class*="_cancelled"] [data-testid="stVerticalBlockBorderWrapper"] {border:2px solid #c07a12 !important; background:linear-gradient(145deg,rgba(192,122,18,.13),var(--allstar-card)) !important;}
+.k6-card-status {height:1.8rem; display:flex; align-items:center;}
+.k6-card-status-empty {visibility:hidden;}
+.k6-card-badge {display:inline-block; padding:.18rem .58rem; border-radius:999px; color:#fff; font-size:.76rem; font-weight:850;}
+.k6-card-badge-running {background:#2f80ed;}
+.k6-card-badge-completed {background:#188a4c;}
+.k6-card-badge-failed,.k6-card-badge-cancelled {background:#c07a12;}
+.k6-card-copy h4 {margin:.05rem 0 0; font-size:1.02rem;}
+.k6-card-english {color:var(--allstar-muted); font-size:.82rem; font-weight:750; margin:.1rem 0 .65rem;}
+.k6-card-copy p {min-height:4.8rem; color:var(--allstar-muted); font-size:.86rem; line-height:1.5;}
+.k6-card-copy hr {border:0; border-top:1px solid var(--allstar-border); margin:.65rem 0;}
+.k6-card-copy small {display:block; min-height:2.4rem; color:var(--allstar-muted); font-size:.76rem; line-height:1.45;}
 /* 부분 갱신 중 기존 화면 전체가 회색으로 흐려지는 Streamlit stale 효과를 제거한다. */
 [data-stale="true"] {opacity:1 !important;}
 @media (max-width:1200px) {
@@ -250,6 +322,17 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
       [data-baseweb="tab"]:nth-child(5),
     [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
       button[role="tab"]:nth-child(5) {margin-left:1rem !important; padding-left:1rem !important;}
+}
+@media (max-width:1399px) and (min-width:761px) {
+    [class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] {
+        flex-wrap:wrap !important;
+    }
+    [class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex:1 1 calc(50% - 1.1rem) !important;
+        width:calc(50% - 1.1rem) !important;
+        min-width:calc(50% - 1.1rem) !important;
+        max-width:calc(50% - 1.1rem) !important;
+    }
 }
 @media (max-width:900px) {
     .block-container {padding-left:.8rem !important; padding-right:.8rem !important; padding-top:.65rem;}
@@ -276,6 +359,18 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
       button[role="tab"]:nth-child(5) {margin-left:0 !important; padding-left:.9rem !important; border-left:0 !important;}
     [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stTabs"] > div > [role="tablist"]
       > [data-testid="stTab"]:nth-child(5) {margin-left:0 !important; padding-left:.9rem !important; border-left:0 !important;}
+    .k6-env-grid {grid-template-columns:repeat(2,minmax(0,1fr));}
+}
+@media (max-width:760px) {
+    [class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] {
+        flex-wrap:wrap !important;
+    }
+    [class*="st-key-k6_card_row_"] > [data-testid="stLayoutWrapper"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+        flex:1 1 100% !important; width:100% !important; min-width:100% !important; max-width:100% !important;
+    }
+    [class*="st-key-k6_card_"] {min-height:0;}
+    [class*="st-key-k6_card_"] [data-testid="stVerticalBlockBorderWrapper"] {min-height:0;}
+    .k6-card-copy p,.k6-card-copy small {min-height:0;}
 }
 @media (max-width:600px) {
     .block-container {padding-left:.45rem !important; padding-right:.45rem !important;}
@@ -286,6 +381,7 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
     .scope-box {padding:.7rem .75rem; font-size:.88rem; line-height:1.5;}
     [data-testid="stChatMessage"] {max-width:92% !important;}
     [data-testid="stHorizontalBlock"] {gap:.55rem;}
+    .k6-env-grid {grid-template-columns:1fr;}
 }
 </style>
 """,
@@ -309,6 +405,7 @@ watch_voc_report_updates()
     tab_voc_chat,
     tab_monitoring,
     tab_reports,
+    tab_k6_load,
     tab_ai_cases,
     tab_voc_cases,
 ) = st.tabs(
@@ -317,6 +414,7 @@ watch_voc_report_updates()
         "VOC 챗봇\n(VOC)",
         "모니터링\n(Monitoring)",
         "보고서 모음\n(Reports)",
+        "K6 부하 테스트\n(K6 Load Test)",
         "AI 에이전트 테스트케이스\n(AI Agent QA)",
         "VOC 테스트케이스\n(VOC QA)",
     ]
@@ -333,6 +431,9 @@ with tab_monitoring:
 
 with tab_reports:
     render_reports()
+
+with tab_k6_load:
+    render_k6_load_test()
 
 with tab_ai_cases:
     render_ai_testcases()

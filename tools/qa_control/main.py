@@ -36,7 +36,6 @@ AI_TESTS = [
     ("순간 급증 시험 (Spike Test)", ["k6", "run", "ops/performance/spike_test.js"], True),
     ("장애·기능 검증 시험 (Validation Test)", [PY, "-u", "tools/scripts/run_validation_tests.py"], True),
     ("서버 연결 성능 종합 시험 (API)", [PY, "-u", "tools/scripts/run_performance_tests.py"], True),
-    ("서버 연결 끊김 방어 시험 (API)", [PY, "-u", "tools/scripts/run_api_disconnect_test.py"], True),
     ("테스트케이스 품질 시험 (Test Case Test)", [PY, "-u", "-m", "allstar.ai_agent.evaluation.quality_pipeline"], True),
 ]
 
@@ -55,7 +54,6 @@ TEST_IDS = {
     "순간 급증 시험 (Spike Test)": "ai_spike",
     "장애·기능 검증 시험 (Validation Test)": "ai_validation",
     "서버 연결 성능 종합 시험 (API)": "ai_api_performance",
-    "서버 연결 끊김 방어 시험 (API)": "ai_api_disconnect",
     "테스트케이스 품질 시험 (Test Case Test)": "ai_testcase",
     "전체 비AI pytest": "voc_non_ai",
     "단위 테스트": "voc_unit",
@@ -114,10 +112,6 @@ TEST_DESCRIPTIONS = {
         "K6 부하 시험 도구로 가상 사용자 1명, 10명, 25명 순서로 서버 연결 통로(API)에 실제 채팅 요청을 보내는 성능 시험입니다.\n"
         "각 단계가 완전히 끝난 뒤 5초간 안정화하고 다음 단계를 시작하는 단계별 독립 실행 방식이며, "
         "응답시간과 실패율 변화를 확인할 수 있습니다. 완료 후 성능 보고서가 자동 생성됩니다."
-    ),
-    "서버 연결 끊김 방어 시험 (API)": (
-        "외부 연결 실패 상황을 의도적으로 발생시켜 재시도와 안전한 대체 응답이 동작하는지 확인합니다.\n"
-        "연결 장애가 발생해도 서버가 중단되지 않고 사용자에게 이해하기 쉬운 안내를 반환하는지 검증합니다. 시험 결과는 자동 정리됩니다."
     ),
     "테스트케이스 품질 시험 (Test Case Test)": (
         "현재 등록된 AI 에이전트 테스트케이스 전체를 규칙 기반 답변과 API 기반 답변으로 각각 실행하고 품질을 비교합니다.\n"

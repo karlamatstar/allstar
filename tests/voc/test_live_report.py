@@ -55,12 +55,15 @@ def test_live_report_starts_with_profile_guide_and_records_question_profile(tmp_
     content = (report_dir / "latest" / "voc_live_report.md").read_text(encoding="utf-8")
     history = Path(output["history"]).read_text(encoding="utf-8")
     manifest = json.loads(Path(output["manifest"]).read_text(encoding="utf-8"))
-    assert "## A~D 모델 프로필" in content
-    assert "## 1. 한눈에 보는 품질 현황" in content
-    assert "## 2. 품질·판정·처리시간 그래프" in content
-    assert "## 3. 확인이 필요한 채점 결과" in content
-    assert "## 4. 채팅 및 채점 목록" in content
-    assert "## 독립 품질평가 기준" in content
+    assert "## 1. 모델 프로필과 품질평가 기준" in content
+    assert "### A~D 모델 프로필" in content
+    assert "### 독립 품질평가 기준" in content
+    assert "## 2. 한눈에 보는 품질 현황" in content
+    assert "## 3. 품질·판정·처리시간 그래프" in content
+    assert "## 4. 확인이 필요한 채점 결과" in content
+    assert "## 5. 채팅 및 채점 목록" in content
+    assert content.index("## 1. 모델 프로필과 품질평가 기준") < content.index("## 2. 한눈에 보는 품질 현황")
+    assert "A~D 모델과 9항목·100점 기준 열기" not in content
     assert "9항목·100점" in content
     assert "프로필: **C · OpenAI 계열 비교**" in content
     assert "gpt-5.6-luna" in content

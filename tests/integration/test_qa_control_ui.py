@@ -87,6 +87,15 @@ def test_every_ai_test_has_a_specific_user_facing_description():
         assert "자동" in description
 
 
+def test_forced_disconnect_test_is_removed_completely():
+    titles = {title for title, _command, _confirm in qa_control.AI_TESTS}
+    source = QA_CONTROL_PATH.read_text(encoding="utf-8")
+
+    assert "서버 연결 끊김 방어 시험 (API)" not in titles
+    assert "ai_api_disconnect" not in qa_control.TEST_IDS.values()
+    assert "run_api_disconnect_test.py" not in source
+
+
 def test_api_performance_description_explains_independent_phases():
     description = qa_control.TEST_DESCRIPTIONS["서버 연결 성능 종합 시험 (API)"]
 
@@ -184,8 +193,8 @@ def test_global_execution_lock_updates_all_tab_buttons():
     app.withdraw()
     app.update_idletasks()
     try:
-        assert len(app.test_tabs) == 15
-        assert app.test_tabs[8].title_text == "테스트케이스 품질 시험 (Test Case Test)"
+        assert len(app.test_tabs) == 14
+        assert app.test_tabs[7].title_text == "테스트케이스 품질 시험 (Test Case Test)"
         assert app.minsize() == (1200, 650)
         assert all(tab.start_button.cget("state") == "normal" for tab in app.test_tabs)
         assert all(tab.stop_button.cget("state") == "disabled" for tab in app.test_tabs)

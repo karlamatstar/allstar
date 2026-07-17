@@ -33,6 +33,19 @@ from allstar.shared.paths import (
 from allstar.voc.evaluation.progress import read_progress
 from allstar.voc.evaluation.runtime_support import load_json as load_voc_json
 from allstar.voc.api.validation import is_valid_question_text
+from allstar.ui.dashboard.k6_load_runner import (
+    K6_INSTALL_URL,
+    K6_MAX_DURATION,
+    K6_MAX_VUS,
+    K6_MIN_DURATION,
+    K6_MIN_VUS,
+    K6_TEST_SPECS,
+    clear_finished_run,
+    inspect_environment,
+    poll_current_run,
+    start_run,
+    stop_current_run,
+)
 
 
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
@@ -1214,6 +1227,334 @@ def render_voc_chat() -> None:
         _render_voc_breakdown(frame)
     with tab_detail:
         _render_voc_detail(frame)
+
+
+@st.cache_data(ttl=5, show_spinner=False)
+def _k6_environment_status(portfolio_api: str, grafana_url: str) -> dict[str, Any]:
+    return inspect_environment(portfolio_api, grafana_url)
+
+
+def _k6_environment_panel(status: dict[str, Any]) -> None:
+    items = (
+        ("K6", status["k6"]),
+        ("AI 에이전트 서버", status["api"]),
+        ("Prometheus", status["prometheus"]),
+        ("Grafana", status["grafana"]),
+    )
+    cards = []
+    for label, value in items:
+        state_class = "ready" if value.get("ok") else "offline"
+        state_label = "사용 가능" if value.get("ok") else "사용 불가"
+        detail = html.escape(str(value.get("detail") or "확인 결과 없음"))
+        cards.append(
+            f"<div class='k6-env-item k6-env-{state_class}'>"
+            f"<b><span></span>{html.escape(label)}</b><strong>{state_label}</strong><small>{detail}</small></div>"
+        )
+    st.markdown("<div class='k6-env-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+    if not status["grafana"]["ok"]:
+        st.caption("Grafana는 결과 조회용이므로 꺼져 있어도 시험할 수 있지만, 실행 결과 화면은 Grafana 시작 후 확인해야 합니다.")
+    if status.get("inside_docker"):
+        st.warning("현재 Streamlit이 Docker 안에서 실행 중입니다. 컨테이너 내부의 Linux용 K6가 확인되어야 시험할 수 있습니다.")
+
+
+def _enable_k6_number_hold_repeat() -> None:
+    """K6 숫자 입력의 증감 버튼을 길게 누르면 현재 버튼을 빠르게 반복 실행한다."""
+    components.html(
+        """
+        <script>
+        (() => {
+            const root = window.parent;
+            const doc = root.document;
+            if (root.__allstarK6HoldRepeatInstalled) return;
+            root.__allstarK6HoldRepeatInstalled = true;
+            const state = { delay: null, interval: null, cardKey: null, label: null };
+            const numberState = (button) => {
+                const input = button?.closest?.('[data-testid="stNumberInputContainer"]')
+                    ?.querySelector?.('[data-testid="stNumberInputField"]');
+                if (!input) return null;
+                const duration = input.getAttribute("aria-label")?.includes("시간");
+                return {
+                    input,
+                    minimum: duration ? 10 : 1,
+                    maximum: duration ? 600 : 999,
+                    value: Number(input.value),
+                };
+            };
+            const reachedBoundary = (button) => {
+                const current = numberState(button);
+                if (!current || !Number.isFinite(current.value)) return false;
+                return button.getAttribute("aria-label") === "Increment"
+                    ? current.value >= current.maximum
+                    : current.value <= current.minimum;
+            };
+            const stop = () => {
+                if (state.delay) root.clearTimeout(state.delay);
+                if (state.interval) root.clearInterval(state.interval);
+                state.delay = null;
+                state.interval = null;
+                state.cardKey = null;
+                state.label = null;
+            };
+            const currentButton = () => {
+                if (!state.cardKey || !state.label) return null;
+                const card = doc.getElementsByClassName(state.cardKey)[0];
+                return card?.querySelector(`button[aria-label="${state.label}"]`) || null;
+            };
+            const repeat = () => {
+                const button = currentButton();
+                if (!button || button.disabled || reachedBoundary(button)) {
+                    stop();
+                    return;
+                }
+                button.click();
+            };
+            doc.addEventListener("click", (event) => {
+                const button = event.target.closest?.('button[aria-label="Increment"],button[aria-label="Decrement"]');
+                const card = button?.closest?.('[class*="st-key-k6_card_"]');
+                if (!button || !card || !reachedBoundary(button)) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                stop();
+            }, true);
+            doc.addEventListener("pointerdown", (event) => {
+                if (event.button !== 0) return;
+                const button = event.target.closest?.('button[aria-label="Increment"],button[aria-label="Decrement"]');
+                const card = button?.closest?.('[class*="st-key-k6_card_"]');
+                if (!button || !card || button.disabled) return;
+                stop();
+                state.cardKey = Array.from(card.classList).find((name) => name.startsWith("st-key-k6_card_"));
+                state.label = button.getAttribute("aria-label");
+                state.delay = root.setTimeout(() => {
+                    repeat();
+                    state.interval = root.setInterval(repeat, 100);
+                }, 450);
+            }, true);
+            for (const eventName of ["pointerup", "pointercancel", "mouseup", "touchend"]) {
+                doc.addEventListener(eventName, stop, true);
+            }
+            root.addEventListener("blur", stop, true);
+        })();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _scroll_to_k6_run_once(run_id: str) -> None:
+    safe_run_id = re.sub(r"[^a-zA-Z0-9_-]", "_", run_id)
+    anchor_id = f"k6-run-bottom-{safe_run_id}"
+    st.markdown(f"<div id='{anchor_id}'></div>", unsafe_allow_html=True)
+    components.html(
+        f"""
+        <script>
+        (() => {{
+            const move = (behavior) => {{
+                const parentDocument = window.parent.document;
+                const target = parentDocument.getElementById({json.dumps(anchor_id)});
+                if (!target) return;
+                const scroller = target.closest('[data-testid="stMain"]') || parentDocument.scrollingElement;
+                if (scroller && typeof scroller.scrollTo === "function") {{
+                    scroller.scrollTo({{top: scroller.scrollHeight, behavior}});
+                }} else {{
+                    target.scrollIntoView({{behavior, block: "end"}});
+                }}
+            }};
+            window.requestAnimationFrame(() => move("smooth"));
+            window.setTimeout(() => move("smooth"), 300);
+            window.setTimeout(() => move("auto"), 750);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _k6_card_status(run: Any, test_id: str) -> tuple[str, str]:
+    if run is None or run.spec.test_id != test_id:
+        return "idle", ""
+    labels = {
+        "running": "실행 중",
+        "completed": "완료",
+        "failed": "실패",
+        "cancelled": "사용자 중단",
+    }
+    return run.status, labels.get(run.status, run.status)
+
+
+def _clamp_k6_number_input(key: str, minimum: int, maximum: int) -> None:
+    """직접 입력하거나 증감한 값을 허용 범위의 가장 가까운 값으로 즉시 보정한다."""
+    try:
+        value = int(st.session_state.get(key, minimum))
+    except (TypeError, ValueError):
+        value = minimum
+    st.session_state[key] = min(maximum, max(minimum, value))
+
+
+def _render_k6_card(spec: Any, environment: dict[str, Any], run: Any) -> None:
+    visual_state, state_label = _k6_card_status(run, spec.test_id)
+    container_key = f"k6_card_{spec.test_id}_{visual_state}"
+    with st.container(border=True, key=container_key):
+        badge = (
+            f"<div class='k6-card-status'><span class='k6-card-badge k6-card-badge-{visual_state}'>{html.escape(state_label)}</span></div>"
+            if state_label else "<div class='k6-card-status k6-card-status-empty'></div>"
+        )
+        result_text = (
+            "Prometheus·Grafana 기록 · 별도 보고서 없음"
+            if not spec.write_summary_report
+            else "실행 로그 누적 · 정상 완료 시 기존 정식 보고서 갱신"
+        )
+        st.markdown(
+            badge
+            + f"<div class='k6-card-copy'><h4>{html.escape(spec.title)}</h4>"
+            + f"<div class='k6-card-english'>({html.escape(spec.english)})</div>"
+            + f"<p>{html.escape(spec.description)}</p><hr><small>{html.escape(result_text)}</small></div>",
+            unsafe_allow_html=True,
+        )
+        vus: int | None = None
+        duration: int | None = None
+        if spec.default_vus is not None and spec.default_duration is not None:
+            vus_key = f"k6_vus_{spec.test_id}"
+            duration_key = f"k6_duration_{spec.test_id}"
+            setting_columns = st.columns(2)
+            with setting_columns[0]:
+                vus = int(st.number_input(
+                    "최대 가상 인원(VU)", value=spec.default_vus, step=1,
+                    key=vus_key, disabled=run is not None,
+                    on_change=_clamp_k6_number_input, args=(vus_key, K6_MIN_VUS, K6_MAX_VUS),
+                ))
+            with setting_columns[1]:
+                duration = int(st.number_input(
+                    "실행 시간(초)", value=spec.default_duration, step=1,
+                    key=duration_key, disabled=run is not None,
+                    on_change=_clamp_k6_number_input,
+                    args=(duration_key, K6_MIN_DURATION, K6_MAX_DURATION),
+                ))
+        elif spec.test_id == "ai_smoke":
+            st.caption("고정 설정: 가상 사용자 1명 · 상태와 모의 채팅 각 1회")
+        elif spec.test_id == "ai_validation":
+            st.caption("고정 범위: 장애 모의 K6 · 외부 AI 제외 기능 회귀")
+        else:
+            st.caption("고정 단계: 1명 → 10명 → 25명 · 단계 사이 5초 안정화")
+
+        api_confirmed = True
+        if spec.actual_api:
+            api_confirmed = _required_api_confirmation(
+                "k6_api_performance_confirm",
+                "실제 AI API 호출과 비용 발생 가능성을 확인했습니다.",
+            )
+        missing = []
+        if not environment["k6"]["ok"]:
+            missing.append("K6")
+        if not environment["api"]["ok"]:
+            missing.append("AI 서버")
+        if not environment["prometheus"]["ok"]:
+            missing.append("Prometheus")
+        if missing:
+            st.caption("실행 불가: " + ", ".join(missing) + " 준비 필요")
+        disabled = run is not None or bool(missing) or not api_confirmed
+        if st.button(
+            f"{spec.title} 실행",
+            key=f"run_k6_{spec.test_id}",
+            type="primary" if not disabled else "secondary",
+            disabled=disabled,
+            width="stretch",
+        ):
+            executable = environment["k6"].get("executable")
+            if not executable:
+                st.error("K6 실행 파일을 찾지 못했습니다.")
+            else:
+                try:
+                    started = start_run(
+                        spec.test_id,
+                        k6_executable=str(executable),
+                        portfolio_api=PORTFOLIO_API,
+                        vus=vus,
+                        duration=duration,
+                    )
+                except (RuntimeError, ValueError) as error:
+                    st.error(str(error))
+                else:
+                    st.session_state.pop("k6_scrolled_run_id", None)
+                    st.session_state.k6_started_run_id = started.run_id
+                    st.rerun(scope="fragment")
+
+
+def _render_k6_active_run(run: Any) -> None:
+    if run is None:
+        return
+    elapsed = run.elapsed_seconds
+    st.markdown("---")
+    st.markdown(f"## 현재 시험: {run.spec.title} ({run.spec.english})")
+    if run.status == "running":
+        st.info(f"실행 중 · {elapsed:.1f}초 경과")
+        if st.button("시험 중지", key="stop_dashboard_k6_run", type="primary"):
+            with st.spinner("시험과 하위 프로세스를 중지하고 있습니다..."):
+                stop_current_run()
+            st.rerun(scope="fragment")
+    elif run.status == "completed":
+        st.success(f"정상 완료 · {elapsed:.1f}초")
+    elif run.status == "cancelled":
+        st.warning(f"사용자가 중단한 시험입니다 · {elapsed:.1f}초")
+    else:
+        st.error(f"시험 실패 · 종료 코드 {run.exit_code} · {elapsed:.1f}초")
+
+    if run.settings:
+        st.caption(" · ".join(f"{key}: {value}" for key, value in run.settings.items() if key != "실행 위치"))
+    output = _read_process_output(run.log_path)
+    st.markdown("### 실시간 터미널")
+    with st.container(height=360, border=True, autoscroll=True, key=f"k6_terminal_{run.run_id}"):
+        st.code(output[-50000:] or "시험 실행을 준비하고 있습니다...", language="text", wrap_lines=True)
+
+    if run.finalized:
+        if run.status != "completed":
+            st.caption("중단·실패 실행은 원문 로그만 보존하며 기존 정상 최신 보고서를 덮어쓰지 않습니다.")
+        if st.button("실행 결과 닫기 · 다음 시험 준비", key="clear_dashboard_k6_run", type="primary"):
+            clear_finished_run()
+            st.session_state.pop("k6_started_run_id", None)
+            st.rerun(scope="fragment")
+
+    if st.session_state.get("k6_scrolled_run_id") != run.run_id:
+        _scroll_to_k6_run_once(run.run_id)
+        st.session_state.k6_scrolled_run_id = run.run_id
+
+
+@st.fragment
+def _render_k6_load_test_fragment() -> None:
+    _enable_k6_number_hold_repeat()
+    environment = _k6_environment_status(PORTFOLIO_API, GRAFANA)
+    heading_columns = st.columns([5, 1])
+    with heading_columns[0]:
+        st.markdown("### 실행 환경 상태")
+    with heading_columns[1]:
+        if st.button("상태 새로고침", key="refresh_k6_environment", width="stretch"):
+            _k6_environment_status.clear()
+            st.rerun(scope="fragment")
+    _k6_environment_panel(environment)
+    if not environment["k6"]["ok"]:
+        st.link_button("K6 공식 설치 안내 열기", K6_INSTALL_URL, width="stretch")
+    st.markdown(
+        "<div class='scope-box'><b>실행 안내</b><br>한 번에 하나의 시험만 실행합니다. "
+        "직접 K6 5종은 Grafana용이며, 장애·기능 검증과 서버 연결 성능 종합 시험의 기존 정식 보고서는 유지합니다.</div>",
+        unsafe_allow_html=True,
+    )
+    run = poll_current_run()
+    rows = (K6_TEST_SPECS[:4], K6_TEST_SPECS[4:])
+    for row_index, specs in enumerate(rows):
+        with st.container(key=f"k6_card_row_{row_index}"):
+            columns = st.columns(len(specs), gap="medium")
+            for column, spec in zip(columns, specs):
+                with column:
+                    _render_k6_card(spec, environment, run)
+    run = poll_current_run()
+    _render_k6_active_run(run)
+    if run is not None and not run.finalized:
+        time.sleep(1)
+        st.rerun(scope="fragment")
+
+
+def render_k6_load_test() -> None:
+    _section("K6 부하 테스트", "주요 부하·장애·서버 연결 성능 시험을 선택하고 진행 내용을 실시간으로 확인합니다.")
+    _render_k6_load_test_fragment()
 
 
 def render_monitoring() -> None:

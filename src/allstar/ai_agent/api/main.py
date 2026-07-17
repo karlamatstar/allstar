@@ -225,30 +225,9 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
 def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatResponse:
     start = time.perf_counter()
 
-    # 챗봇 UI에서 직접 에러 상황을 재현하기 위한 백도어(마법 단어)
-    clean_question = request.question.replace(" ", "")
-    if "퇴근" in clean_question:
-        request.simulate_api_disconnect = True
-
-    if "강사" in clean_question:
-        # 504 타임아웃 모의 (10초 대기)
-        time.sleep(10)
-        chat_requests_total.labels(status="error").inc()
-        logger.error("API 응답 타임아웃 장애 모의 발생 (504)")
-        answer = "API 서버 응답 시간이 지연되어 타임아웃이 발생했습니다. 트래픽이 많거나 서버에 과부하가 걸렸습니다. (504 Gateway Timeout)"
-        rule_answer = get_answer_from_rule_based_agent(request.question)
-        latency_ms = (time.perf_counter() - start) * 1000
-        chat_request_latency_seconds.observe(latency_ms / 1000)
-        request_id = uuid.uuid4().hex
-        log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
-        mark_pending(request_id)
-        background_tasks.add_task(_score_both_and_check_jira_background, request.question, answer, rule_answer, request_id, False)
-        chat_last_activity_timestamp_seconds.set_to_current_time()
-        return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=latency_ms, request_id=request_id)
-
     is_api_error = False
     try:
-        answer = get_answer_from_api_agent(request.question, simulate_api_disconnect=request.simulate_api_disconnect)
+        answer = get_answer_from_api_agent(request.question)
     except ApiAgentUnavailableError as error:
         logger.error(f"API 끊김 장애 발생: {error}")
         answer = "현재 API 서버 점검 중이거나 일시적인 통신 장애가 발생했습니다. 잠시 후 다시 시도해 주세요. (503 Service Unavailable)"
