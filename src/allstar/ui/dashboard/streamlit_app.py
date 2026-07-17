@@ -1,211 +1,136 @@
 from __future__ import annotations
 
-import os
-import time
-
-import httpx
 import streamlit as st
 
+from allstar.ui.dashboard.views import (
+    render_ai_chat,
+    render_ai_testcases,
+    render_monitoring,
+    render_reports,
+    render_voc_chat,
+    render_voc_testcases,
+)
 
 
 st.set_page_config(page_title="AI Agent QA AllStar", page_icon="⭐", layout="wide")
-PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
-VOC_API = os.getenv("VOC_API_URL", "http://localhost:8100")
-GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000")
-TIMEOUT = httpx.Timeout(190.0, connect=5.0)
 
-st.markdown("""
+st.markdown(
+    """
 <style>
-.block-container {max-width: 1500px; padding-top: 1.2rem;}
-.profile-card {
-    box-sizing:border-box;
-    height:16rem;
-    overflow-y:auto;
-    border:1px solid #d8dee9;
-    border-radius:14px;
-    padding:12px;
-    background:#fff;
-    display:flex;
-    flex-direction:column;
+:root {
+    --allstar-card:#ffffff;
+    --allstar-border:#d8e0ec;
+    --allstar-text:#172033;
+    --allstar-muted:#64748b;
+    --allstar-selected:#304f7d;
 }
-.profile-title {font-size:1.08rem;font-weight:800;margin-bottom:6px;min-height:2.8rem;}
-.profile-summary {min-height:4.2rem;}
-.profile-card hr {width:100%;margin:10px 0;}
-.profile-model {font-size:.85rem;color:#425466;line-height:1.45;margin-top:auto;}
-@media (max-width:1200px) {.profile-card {height:19rem;}}
-@media (max-width:900px) {.profile-card {height:22rem;}}
-.stage {border:1px solid #d8dee9;border-radius:10px;padding:8px;text-align:center;font-size:.82rem;min-height:68px;}
-</style>
-""", unsafe_allow_html=True)
-
-
-def get_json(url: str) -> dict | list | None:
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            response = client.get(url)
-            response.raise_for_status()
-            return response.json()
-    except Exception:
-        return None
-
-
-def profile_text(profile: dict) -> str:
-    generation = profile["generation"]
-    judge = profile["judge"]
-    return (
-        f"{profile['profile_id']} · {profile['title']}\n"
-        f"답변 생성 {generation['provider']} / {generation['model']} / {reasoning_text(generation['reasoning'])}\n"
-        f"독립 품질 평가(Judge) {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}"
-    )
-
-
-def reasoning_text(value: str) -> str:
-    labels = {
-        "none": "추론 끔(none)",
-        "low": "낮음(low)",
-        "medium": "중간(medium)",
-        "high": "높음(high)",
+@media (prefers-color-scheme: dark) {
+    :root {
+        --allstar-card:#171f2e;
+        --allstar-border:#334155;
+        --allstar-text:#e5e9f0;
+        --allstar-muted:#94a3b8;
+        --allstar-selected:#6f96cc;
     }
-    return labels.get(value, value)
+}
+.block-container {max-width:1760px; padding-top:1rem; padding-bottom:2rem;}
+header[data-testid="stHeader"] {height:0; visibility:hidden;}
+#MainMenu, footer {visibility:hidden;}
 
+/* 선택 여부에 따라 탭 크기가 변하지 않게 하고, 다섯 번째 상위 탭부터 오른쪽 QA 영역으로 분리한다. */
+[data-baseweb="tab-list"] [data-baseweb="tab"] {
+    box-sizing:border-box; min-height:3.25rem; padding:.65rem .9rem !important;
+    font-weight:750; white-space:normal; text-align:center; line-height:1.2;
+}
+[data-baseweb="tab-list"] [aria-selected="true"] {color:var(--allstar-selected) !important;}
+[data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+  [data-baseweb="tab"]:nth-child(5),
+[data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+  button[role="tab"]:nth-child(5) {
+    margin-left:auto !important;
+    padding-left:2rem !important;
+    border-left:1px solid var(--allstar-border) !important;
+}
 
-st.title("⭐ AI Agent QA AllStar")
-st.caption("AI 상담 에이전트(AI Agent)와 고객 의견 분석(VOC)을 한 화면에서 실행하고 품질 결과를 확인합니다.")
-
-tab_ai, tab_voc, tab_reports, tab_monitoring = st.tabs(
-    ["AI 상담 챗봇 (AI Agent)", "고객 의견 분석 (VOC)", "통합 결과 보고서 (Report)", "통합 상태 확인 (Monitoring)"]
+.allstar-banner {
+    padding:1rem 1.35rem; margin-bottom:.8rem; border-radius:14px; color:#fff;
+    background:linear-gradient(120deg,#111c3a 0%,#1e335f 58%,#365f91 100%);
+    box-shadow:0 8px 24px rgba(17,28,58,.22);
+}
+.allstar-banner h1 {font-size:1.65rem; margin:0 0 .2rem; color:#fff;}
+.allstar-banner p {margin:0; color:rgba(255,255,255,.9); font-weight:600;}
+.profile-card {
+    box-sizing:border-box; height:16rem; overflow-y:auto; border:1px solid var(--allstar-border);
+    border-radius:14px; padding:12px; background:var(--allstar-card); display:flex; flex-direction:column;
+}
+.profile-title {font-size:1.08rem; font-weight:800; margin-bottom:6px; min-height:2.8rem;}
+.profile-summary {min-height:4.2rem; color:var(--allstar-muted);}
+.profile-card hr {width:100%; margin:10px 0; border-color:var(--allstar-border);}
+.profile-model {font-size:.85rem; color:var(--allstar-muted); line-height:1.45; margin-top:auto;}
+.scope-box {border:1px solid var(--allstar-border); border-radius:12px; padding:.8rem 1rem; background:var(--allstar-card);}
+.stage-detail {border:1px solid var(--allstar-border); border-radius:12px; padding:1rem; background:var(--allstar-card);}
+@media (max-width:1200px) {
+    .profile-card {height:19rem;}
+    [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+      [data-baseweb="tab"]:nth-child(5),
+    [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+      button[role="tab"]:nth-child(5) {margin-left:1rem !important; padding-left:1rem !important;}
+}
+@media (max-width:900px) {
+    .profile-card {height:22rem;}
+    [data-baseweb="tab-list"] {overflow-x:auto; flex-wrap:nowrap;}
+    [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+      [data-baseweb="tab"]:nth-child(5),
+    [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
+      button[role="tab"]:nth-child(5) {margin-left:0 !important; padding-left:.9rem !important; border-left:0 !important;}
+}
+</style>
+""",
+    unsafe_allow_html=True,
 )
 
-with tab_ai:
-    st.subheader("AI 상담 챗봇 (AI Agent)")
-    st.caption("AI 상담 서버와 연결되는 프로그램 통로(API, :8000)를 사용합니다.")
-    for message in st.session_state.setdefault("ai_history", []):
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-    if question := st.chat_input("AI 상담 에이전트에게 질문하세요", key="ai_question"):
-        st.session_state.ai_history.append({"role": "user", "content": question})
-        try:
-            with httpx.Client(timeout=TIMEOUT) as client:
-                response = client.post(f"{PORTFOLIO_API}/chat", json={"question": question})
-                response.raise_for_status()
-                body = response.json()
-            answer = body.get("answer", "응답이 없습니다.")
-        except Exception as error:
-            answer = f"AI 상담 서버(API) 연결 실패: {error}"
-        st.session_state.ai_history.append({"role": "assistant", "content": answer})
-        st.rerun()
+st.markdown(
+    """
+<div class="allstar-banner">
+  <h1>⭐ AI Agent QA AllStar</h1>
+  <p>AI 에이전트와 고객 의견 분석(VOC)의 대화·품질검사·모니터링·보고서를 한 화면에서 관리합니다.</p>
+</div>
+""",
+    unsafe_allow_html=True,
+)
 
-with tab_voc:
-    st.subheader("고객 의견 분석(VOC) 단발 질문")
-    st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델(Judge)의 조합입니다. 선택은 현재 질문 1건에만 적용됩니다.")
-    profiles = get_json(f"{VOC_API}/profiles") or []
-    pending = st.session_state.get("voc_pending")
-    selected = st.session_state.setdefault("voc_profile", "A")
+(
+    tab_ai_chat,
+    tab_voc_chat,
+    tab_monitoring,
+    tab_reports,
+    tab_ai_cases,
+    tab_voc_cases,
+) = st.tabs(
+    [
+        "AI 에이전트 챗봇\n(AI Agent)",
+        "VOC 챗봇\n(VOC)",
+        "모니터링\n(Monitoring)",
+        "리포트 모음\n(Reports)",
+        "AI 에이전트 테스트케이스\n(AI Agent QA)",
+        "VOC 테스트케이스\n(VOC QA)",
+    ]
+)
 
-    if profiles:
-        columns = st.columns(4)
-        for column, profile in zip(columns, profiles):
-            generation = profile["generation"]
-            judge = profile["judge"]
-            with column:
-                st.markdown(
-                    f"<div class='profile-card'><div class='profile-title'>"
-                    f"{profile['profile_id']} · {profile['title']}</div>"
-                    f"<div class='profile-summary'>{profile['summary']}</div><hr>"
-                    f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / 추론 강도 {reasoning_text(generation['reasoning'])}<br>"
-                    f"독립 품질 평가(Judge): {judge['provider']} / {judge['model']} / 추론 강도 {reasoning_text(judge['reasoning'])}</div></div>",
-                    unsafe_allow_html=True,
-                )
-                if st.button(
-                    "✓ 선택됨" if selected == profile["profile_id"] else "선택",
-                    key=f"profile_{profile['profile_id']}",
-                    disabled=bool(pending) or not profile.get("available", True),
-                    use_container_width=True,
-                ):
-                    st.session_state.voc_profile = profile["profile_id"]
-                    st.rerun()
-                if not profile.get("available", True):
-                    st.caption("필수 키 설정 필요: " + ", ".join(profile.get("missing_keys", [])))
-    else:
-        st.warning("고객 의견 분석 서버(VOC API)에 연결할 수 없습니다. 'AllStar 서버 관리'에서 해당 서비스를 시작하세요.")
+with tab_ai_chat:
+    render_ai_chat()
 
-    st.markdown(f"현재 선택: **{st.session_state.voc_profile}**")
-    for message in st.session_state.setdefault("voc_history", []):
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-            if message.get("meta"):
-                st.caption(message["meta"])
-
-    if pending:
-        status = get_json(f"{VOC_API}/chat/{pending}/status")
-        if status:
-            stages = [
-                "① 질문 의도 분석 (Interpreter)",
-                "② 관련 의견 검색 (Retriever)",
-                "③ 내용 요약 (Summarizer)",
-                "④ 초기 품질 평가 (Evaluator)",
-                "⑤ 결과 검토 (Critic)",
-                "⑥ 최종 답변 개선 (Improver)",
-                "⑦ 독립 품질 평가 (LLM Judge)",
-            ]
-            cols = st.columns(7)
-            terminal = status["status"] in {"completed", "failed"}
-            for col, name in zip(cols, stages):
-                col.markdown(
-                    f"<div class='stage'>{'✓ 완료' if terminal and status['status']=='completed' else '◔ 처리 중'}<br>{name}</div>",
-                    unsafe_allow_html=True,
-                )
-            st.progress(100 if terminal else min(95, int(status["elapsed_seconds"] % 95) + 1))
-            st.caption(f"{status['current_stage']} · {status['elapsed_seconds']:.1f}초 경과 · 프로필 {status['profile_id']}")
-            if terminal:
-                if status["status"] == "completed":
-                    result = status.get("result") or {}
-                    answer = result.get("answer") or result.get("policy") or result.get("summary") or "결과 없음"
-                    judge_result = status.get("judge") or {}
-                    meta = (
-                        f"프로필 {status['profile_id']} · {status['elapsed_seconds']:.1f}초 · "
-                        f"독립 평가(Judge) {judge_result.get('total', 'N/A')} / 판정 {judge_result.get('verdict', 'N/A')}"
-                    )
-                else:
-                    answer = f"처리 실패: {status.get('error', '원인 없음')}"
-                    meta = f"프로필 {status['profile_id']} · 실패"
-                st.session_state.voc_history.append({"role": "assistant", "content": answer, "meta": meta})
-                st.session_state.voc_pending = None
-                st.rerun()
-            time.sleep(1)
-            st.rerun()
-
-    if question := st.chat_input("고객 의견(VOC) 관련 단발 질문을 입력하세요", key="voc_question", disabled=bool(pending)):
-        st.session_state.voc_history.append({"role": "user", "content": question})
-        try:
-            with httpx.Client(timeout=10.0) as client:
-                response = client.post(
-                    f"{VOC_API}/chat",
-                    json={"question": question, "profile_id": st.session_state.voc_profile},
-                )
-                response.raise_for_status()
-                st.session_state.voc_pending = response.json()["request_id"]
-        except Exception as error:
-            st.session_state.voc_history.append({"role": "assistant", "content": f"고객 의견 분석(VOC) 요청 실패: {error}"})
-        st.rerun()
-
-with tab_reports:
-    st.subheader("통합 결과 보고서 (Report)")
-    if st.button("고객 의견 분석(VOC) 실시간 보고서 생성"):
-        try:
-            with httpx.Client(timeout=15.0) as client:
-                response = client.post(f"{VOC_API}/reports/live/generate")
-                response.raise_for_status()
-            st.success("리포트를 생성했습니다.")
-            st.json(response.json())
-        except Exception as error:
-            st.error(f"리포트 생성 실패: {error}")
-    st.caption("실시간 챗봇 로그와 테스트케이스·교차검증 리포트는 서로 분리해 저장됩니다.")
+with tab_voc_chat:
+    render_voc_chat()
 
 with tab_monitoring:
-    st.subheader("통합 상태 확인 (Monitoring)")
-    st.caption("운영 그래프, 상태 수집 정보, 서버 기능 명세를 각각 확인할 수 있습니다.")
-    st.link_button("운영 상태 화면 열기 (Grafana)", GRAFANA)
-    st.link_button("상태 정보 수집 화면 열기 (Prometheus)", "http://localhost:9090")
-    st.link_button("AI 상담 서버 기능 명세 열기 (Portfolio Swagger)", f"{PORTFOLIO_API}/docs")
-    st.link_button("고객 의견 분석 서버 기능 명세 열기 (VOC Swagger)", f"{VOC_API}/docs")
+    render_monitoring()
+
+with tab_reports:
+    render_reports()
+
+with tab_ai_cases:
+    render_ai_testcases()
+
+with tab_voc_cases:
+    render_voc_testcases()

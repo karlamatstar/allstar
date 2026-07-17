@@ -1,0 +1,48 @@
+{
+  "title": "VOC QA A~D 비교",
+  "uid": "voc-qa-abcd",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {"from": "now-6h", "to": "now"},
+  "tags": ["voc", "qa", "abcd"],
+  "templating": {"list": []},
+  "panels": [
+    {
+      "id": 1,
+      "title": "A~D 프로필별 성공 요청",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(voc_chat_requests_total{status=\"success\"}[6h])) by (profile)", "legendFormat": "프로필 {{profile}}"}]
+    },
+    {
+      "id": 2,
+      "title": "A~D 프로필별 실패 요청",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(voc_chat_requests_total{status=\"error\"}[6h])) by (profile)", "legendFormat": "프로필 {{profile}}"}]
+    },
+    {
+      "id": 3,
+      "title": "A~D 프로필별 평균 처리시간",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(rate(voc_chat_latency_seconds_sum[5m])) by (profile) / clamp_min(sum(rate(voc_chat_latency_seconds_count[5m])) by (profile), 0.000001)", "legendFormat": "프로필 {{profile}}"}]
+    },
+    {
+      "id": 4,
+      "title": "A~D Judge 성공률",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "100 * sum(rate(voc_judge_total{status=\"success\"}[5m])) by (profile) / clamp_min(sum(rate(voc_judge_total[5m])) by (profile), 0.000001)", "legendFormat": "프로필 {{profile}}"}]
+    }
+  ]
+}

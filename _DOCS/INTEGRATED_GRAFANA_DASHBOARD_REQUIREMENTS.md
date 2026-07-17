@@ -2,13 +2,13 @@
 
 > 작성일: 2026-07-17
 > 적용 대상: `_Total` 통합 Streamlit의 운영 상태 화면
-> 상태: **화면 요구사항 확정, 실제 코드와 VOC Grafana JSON 미구현**
+> 상태: **Streamlit 하위 탭 4개와 VOC Grafana JSON 2개 구현, 비API 검증 완료**
 
 ## 1. 목적
 
 기존 `ai_agent_quality_portfolio` 대시보드처럼 Grafana를 통합 Streamlit 안에서 탭으로 확인한다. 기존 AI 상담용 Grafana 2개를 보존하고 VOC용 Grafana 2개를 추가해 총 4개의 하위 탭으로 구성한다.
 
-이 문서는 화면 구조와 데이터 연결 요구사항만 정리한다. 이번 문서 작성에서는 Streamlit 코드, Prometheus 메트릭, Grafana JSON 및 Docker 설정을 변경하지 않는다.
+2026-07-17에 Streamlit 상위 `모니터링`과 하위 탭 4개를 구현하고 VOC Grafana JSON 2개를 자동 프로비저닝 경로에 추가했다. 기존 Prometheus VOC 지표를 사용하며 Docker 서비스 구성 자체는 변경하지 않았다.
 
 ## 2. 확정 화면 구조
 
@@ -33,10 +33,10 @@
 |---:|---|---|---|---|
 | 1 | AI 상담 실시간 운영 | `ai-agent-quality` | 기존 보존 | JSON·임베드 코드 존재 |
 | 2 | K6 성능 부하 시험 | `k6-performance-test` | 기존 보존 | JSON·임베드 코드 존재 |
-| 3 | VOC 실시간 운영 | `voc-live-operations` 권장 | 신규 | 요구사항만 존재 |
-| 4 | VOC QA·A~D 비교 | `voc-qa-abcd` 권장 | 신규 | 요구사항만 존재 |
+| 3 | VOC 실시간 운영 | `voc-live-operations` | 신규 | JSON·임베드 코드 존재 |
+| 4 | VOC QA·A~D 비교 | `voc-qa-abcd` | 신규 | JSON·임베드 코드 존재 |
 
-현재 `ops/monitoring/`에 동일 내용의 배치 위치별 복사본이 존재하지만 Grafana 대시보드 종류는 기존 2개다. 파일 개수와 실제 대시보드 개수를 혼동하지 않는다.
+현재 `ops/monitoring/`의 원본과 Grafana 자동 프로비저닝 경로에 같은 내용의 복사본을 두며, 실제 대시보드 종류는 기존 2개와 신규 VOC 2개를 합친 4개다. 파일 개수와 실제 대시보드 종류를 혼동하지 않는다.
 
 ## 4. 기존 2개 보존 기준
 
@@ -87,6 +87,16 @@
 5. VOC QA·A~D 비교용 집계 메트릭과 Grafana JSON 작성·프로비저닝
 6. 총 4개 하위 탭의 iframe·새 창 버튼·빈 상태 안내 구현
 7. Docker 환경에서 Grafana UID, Prometheus 데이터, 화면 크기와 새로고침 확인
+
+## 7.1 구현 결과
+
+- 기존 UID `ai-agent-quality`, `k6-performance-test`를 유지했다.
+- 신규 UID `voc-live-operations`, `voc-qa-abcd`를 추가했다.
+- VOC 실시간 운영은 프로필·상태별 요청량, p95 처리시간, Judge 결과와 최근 요청 수를 표시한다.
+- VOC QA·A~D 비교는 프로필별 성공·실패 요청, 평균 처리시간과 Judge 성공률을 표시한다.
+- Grafana가 중지된 상태에서는 iframe 대신 서버 관리에서 Grafana를 먼저 시작하라는 한국어 안내를 표시한다.
+- 브라우저 화면 확인에서는 Grafana 중지 상태 안내와 하위 탭 4개 구성을 확인했다.
+- 실제 Docker Grafana 프로비저닝과 실데이터 패널 값 검증은 서버 전체를 시작한 후 별도로 확인한다.
 
 ## 8. 완료 기준
 

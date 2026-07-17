@@ -139,8 +139,8 @@ def test_voc_profile_gui_uses_all_registered_cases():
     total_cases, api_cases = qa_control.load_voc_case_counts()
     source = QA_CONTROL_PATH.read_text(encoding="utf-8")
 
-    assert total_cases == 20
-    assert api_cases == 18
+    assert total_cases == 10
+    assert api_cases == 9
     assert "등록된 VOC 테스트케이스 전체" in qa_control.VOC_PROFILE_DESCRIPTION
     assert '"전체 테스트케이스": total_cases' in source
     assert '"실제 AI 평가 대상": api_cases' in source

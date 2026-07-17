@@ -15,6 +15,8 @@ def test_health_and_profiles_are_public():
 
 
 def test_chat_job_records_selected_profile_without_real_api(monkeypatch):
+    generated = []
+
     class FakeRunner:
         async def run(self, question, profile):
             return {
@@ -32,6 +34,7 @@ def test_chat_job_records_selected_profile_without_real_api(monkeypatch):
     monkeypatch.setattr(main.judge, "evaluate", fake_judge)
     monkeypatch.setattr(main.log_store, "conversation", lambda record: None)
     monkeypatch.setattr(main.log_store, "judgment", lambda record: None)
+    monkeypatch.setattr(main, "generate_live_report", lambda: generated.append(True))
 
     accepted = client.post("/chat", json={"question": "배송 지연 불만을 분석해줘", "profile_id": "B"})
     assert accepted.status_code == 202
@@ -42,3 +45,4 @@ def test_chat_job_records_selected_profile_without_real_api(monkeypatch):
     assert status["profile"]["generation"]["provider"] == "anthropic"
     assert status["profile"]["judge"]["provider"] == "openai"
     assert status["judge"]["verdict"] == "PASS"
+    assert generated == [True]

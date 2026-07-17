@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import statistics
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from allstar.shared.paths import VOC_REPORT_ROOT
 ROOT = Path(__file__).resolve().parent
 REPORT_ROOT = VOC_REPORT_ROOT / "cross_validation"
 OUTPUT_PATH = REPORT_ROOT / "교차검증_발표자료.pptx"
+TEST_CASE_PATH = ROOT / "test_cases.json"
 
 FONT = "맑은 고딕"
 NAVY = RGBColor(20, 31, 55)
@@ -56,7 +58,12 @@ def _numeric(value: str) -> bool:
         return False
 
 
+def _active_case_count() -> int:
+    return len(json.loads(TEST_CASE_PATH.read_text(encoding="utf-8"))["cases"])
+
+
 def load_results() -> list[Experiment]:
+    expected_cases = _active_case_count()
     providers = {
         "A": ("OpenAI", "Anthropic"),
         "B": ("Anthropic", "OpenAI"),
@@ -68,8 +75,10 @@ def load_results() -> list[Experiment]:
         csv_path = REPORT_ROOT / name.lower() / "llm_judge_result.csv"
         with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
-        if len(rows) != 20:
-            raise RuntimeError(f"{name} 실험군 결과가 20건이 아닙니다: {len(rows)}건")
+        if len(rows) != expected_cases:
+            raise RuntimeError(
+                f"{name} 실험군 결과가 현재 테스트케이스 {expected_cases}건과 일치하지 않습니다: {len(rows)}건"
+            )
         scored_rows = [row for row in rows if _numeric(row.get("total", ""))]
         scores = [float(row["total"]) for row in scored_rows]
         elapsed = [
@@ -156,7 +165,11 @@ def slide_summary(prs: Presentation, results: list[Experiment]):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = PALE
-    add_header(slide, "01", "A·B·C·D 교차검증 결과", "20개 테스트 케이스 × 4개 모델 조합 · 총 80건")
+    case_count = _active_case_count()
+    add_header(
+        slide, "01", "A·B·C·D 교차검증 결과",
+        f"{case_count}개 테스트케이스 × 4개 모델 조합 · 총 {case_count * 4}건",
+    )
 
     table_shape = slide.shapes.add_table(5, 7, Inches(0.55), Inches(1.35), Inches(12.23), Inches(3.15))
     table = table_shape.table
@@ -191,7 +204,7 @@ def slide_summary(prs: Presentation, results: list[Experiment]):
             value = "0건 · N/A 없음"
         add_text(slide, x + 0.25, 5.33, 3.2, 0.52, value, 20, NAVY, True)
     add_text(slide, 0.62, 6.58, 12.0, 0.35,
-             "정식 점수는 TC-01~16, 데이터 없음 예외처리는 TC-17~18, 장애 재현은 TC-19~20에서 확인",
+             "정식 점수는 TC-01~08, 데이터 없음 예외처리는 TC-09, 장애 재현은 TC-10에서 확인",
              10.5, MID, False, PP_ALIGN.CENTER)
 
 
@@ -221,7 +234,7 @@ def slide_charts(prs: Presentation, results: list[Experiment]):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = PALE
-    add_header(slide, "02", "품질과 속도 비교", "평균점수는 TC-01~16, 수행시간은 TC-01~18 실제 실행 사례의 중앙값")
+    add_header(slide, "02", "품질과 속도 비교", "평균점수는 TC-01~08, 수행시간은 TC-01~09 실제 실행 사례의 중앙값")
 
     add_rect(slide, 0.48, 1.27, 6.1, 4.9, WHITE, line=LINE)
     add_rect(slide, 6.75, 1.27, 6.1, 4.9, WHITE, line=LINE)

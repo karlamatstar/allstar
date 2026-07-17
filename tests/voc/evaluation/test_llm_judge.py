@@ -38,15 +38,26 @@ def test_rubric_has_nine_agent_criteria(rubric):
 def test_judge_cases_loadable():
     """단일 test_cases.json에서 Judge 대상과 장애 대상을 구분할 수 있는가."""
     cases = load_json("test_cases.json")["cases"]
-    assert len(cases) == 20
-    assert [case["case_id"] for case in cases] == [f"TC-{number:02d}" for number in range(1, 21)]
+    assert len(cases) == 10
+    assert [case["case_id"] for case in cases] == [f"TC-{number:02d}" for number in range(1, 11)]
     for c in cases:
         assert c["judge_mode"] in ("live", "static", "pytest_fault")
         assert isinstance(c["judge_enabled"], bool)
         assert c["question"]
         if c["judge_mode"] == "static":
             assert c.get("analysis"), f"{c['case_id']}: static 케이스에 analysis가 없습니다"
-    assert sum(case["judge_enabled"] for case in cases) == 18
+    assert sum(case["judge_enabled"] for case in cases) == 9
+
+
+def test_twenty_case_archive_is_preserved():
+    """축소 전 20건 원본과 현재 10건의 출처 연결이 보존되는가."""
+    active = load_json("test_cases.json")["cases"]
+    archive = load_json("archive/test_cases_20_2026-07-17.json")["cases"]
+
+    assert len(archive) == 20
+    assert [case["archive_source_case_id"] for case in active] == [
+        f"TC-{number:02d}" for number in range(1, 20, 2)
+    ]
 
 
 def test_build_judge_prompt_contains_inputs(rubric):

@@ -122,6 +122,16 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
             "judge": row.get("judge"),
             "error": row.get("error"),
         })
+        # 대시보드의 VOC 챗봇 보고서는 수동 버튼을 누르지 않아도 매 질문마다
+        # 최신 대화 로그를 기준으로 자동 갱신한다. 보고서 생성 실패가 이미 완료된
+        # 챗봇 응답 자체를 실패로 바꾸면 안 되므로 오류는 실행 상태에만 보조 기록한다.
+        try:
+            generate_live_report()
+        except Exception as report_error:
+            async with _jobs_lock:
+                existing = _jobs[request_id].get("error")
+                note = f"보고서 자동 갱신 실패: {report_error}"
+                _jobs[request_id]["error"] = f"{existing}; {note}" if existing else note
 
 
 @app.get("/health")

@@ -99,14 +99,14 @@ TEST_TYPE_ORDER = ["Happy", "Edge", "Negative"]
 
 
 def _decision_stats(g: pd.DataFrame) -> dict:
-    """N/A는 FAIL과 동일하게 취급하여 통과율 분모에 포함시키고 FAIL 건수에 합산한다."""
+    """N/A는 품질 실패와 분리하고 통과율·평균 점수 계산에서 제외한다."""
     n = len(g)
-    scored = g.copy()
-    scored["overall_decision"] = scored["overall_decision"].replace("N/A", "FAIL")
+    na_count = int((g["overall_decision"] == "N/A").sum())
+    scored = g[g["overall_decision"] != "N/A"].copy()
     scored_n = len(scored)
     return {
         "n": n,
-        "na": 0,  # FAIL로 합산되므로 따로 표기 안함
+        "na": na_count,
         "pass": int((scored["overall_decision"] == "PASS").sum()),
         "review": int((scored["overall_decision"] == "REVIEW").sum()),
         "fail": int((scored["overall_decision"] == "FAIL").sum()),
@@ -207,13 +207,13 @@ def save_markdown_report(results: list, file_path: Path) -> None:
     overall_line += f" (통과율 {overall['pass_rate']}%, N/A 제외)"
     section4 += [overall_line, f"- 전체 평균 종합점수: **{overall['avg_total']} / 25** (N/A 제외)", ""]
 
-    section4 += ["| 모델 | 평가 행 | PASS | REVIEW | FAIL | 통과율 | 평균 종합점수 |", "|---|---|---|---|---|---|---|"]
+    section4 += ["| 모델 | 평가 행 | PASS | REVIEW | FAIL | N/A | 통과율 | 평균 종합점수 |", "|---|---|---|---|---|---|---|---|"]
     for model_type in MODEL_TYPES:
         s = model_stats.get(model_type)
         if not s:
             continue
         section4.append(
-            f"| {MODEL_LABELS_MD[model_type]} | {s['n']} | {s['pass']} | {s['review']} | {s['fail']} | "
+            f"| {MODEL_LABELS_MD[model_type]} | {s['n']} | {s['pass']} | {s['review']} | {s['fail']} | {s['na']} | "
             f"{s['pass_rate']}% | {s['avg_total']} / 25 |"
         )
     section4.append("")
@@ -245,10 +245,10 @@ def save_markdown_report(results: list, file_path: Path) -> None:
         section4.append(f"| {MODEL_LABELS_MD[model_type]} | {scores} |")
     section4.append("")
 
-    section4 += ["**테스트 유형별 판정 분포** (모델 2종 합산)", "", "| 테스트 유형 | 평가 행 | PASS | REVIEW | FAIL | 통과율 |", "|---|---|---|---|---|---|"]
+    section4 += ["**테스트 유형별 판정 분포** (모델 2종 합산)", "", "| 테스트 유형 | 평가 행 | PASS | REVIEW | FAIL | N/A | 통과율 |", "|---|---|---|---|---|---|---|"]
     for t in ordered_test_types:
         s = test_type_stats[t]
-        section4.append(f"| {test_type_badge(t)} | {s['n']} | {s['pass']} | {s['review']} | {s['fail']} | {s['pass_rate']}% |")
+        section4.append(f"| {test_type_badge(t)} | {s['n']} | {s['pass']} | {s['review']} | {s['fail']} | {s['na']} | {s['pass_rate']}% |")
 
     lines += ["## 4. 종합 요약", ""]
     lines += wrap_details(section4)
