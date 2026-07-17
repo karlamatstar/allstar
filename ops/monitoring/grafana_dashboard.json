@@ -4,7 +4,6 @@
   "schemaVersion": 39,
   "version": 7,
   "refresh": "15s",
-  "style": "light",
   "time": { "from": "now-30m", "to": "now" },
   "graphTooltip": 1,
   "tags": ["ai-agent", "quality", "ops"],

@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from allstar.shared.qa_reporting import QAReportSession
+from allstar.shared.single_instance import DUPLICATE_INSTANCE_EXIT_CODE, SingleInstanceLock
 
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 PY = str(PYTHON if PYTHON.exists() else sys.executable)
@@ -521,9 +522,21 @@ class QAControl(tk.Tk):
             candidate.set_execution_controls(active=False, any_running=False)
 
 
-if __name__ == "__main__":
+def main() -> int:
+    instance = SingleInstanceLock("Local\\AllStarQAControlCenter")
+    if not instance.acquire():
+        messagebox.showwarning("이미 실행 중입니다", "품질검사 관리 프로그램이 이미 실행 중입니다.")
+        return DUPLICATE_INSTANCE_EXIT_CODE
     try:
         QAControl().mainloop()
+        return 0
     except Exception as error:
         (LOG_DIR / "qa_control_launcher.log").write_text(str(error), encoding="utf-8")
         messagebox.showerror("품질검사 관리 시작 실패", str(error))
+        return 1
+    finally:
+        instance.release()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

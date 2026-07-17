@@ -39,7 +39,7 @@ def test_integrated_dashboard_uses_korean_first_navigation_and_explanations():
     assert "⭐ AI Agent QA AllStar" in source
     assert "AI 에이전트 챗봇" in source
     assert "VOC 챗봇" in source
-    assert "리포트 모음" in source
+    assert "보고서 모음" in source
     assert "모니터링" in source
     assert "독립 품질 평가" in views
     assert "테스트케이스 관리" in views

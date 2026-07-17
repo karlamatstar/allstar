@@ -117,6 +117,33 @@ def test_streamlit_shutdown_failure_is_not_reported_as_complete(tmp_path, monkey
     assert "Streamlit 종료 오류 발생" in log_path.read_text(encoding="utf-8")
 
 
+def test_taskkill_access_denied_falls_back_to_powershell_stop_process(tmp_path, monkeypatch):
+    log_path = tmp_path / "shutdown.log"
+    commands = []
+
+    class Completed:
+        def __init__(self, returncode, stdout):
+            self.returncode = returncode
+            self.stdout = stdout
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[0] == "taskkill":
+            return Completed(1, "오류: 액세스가 거부되었습니다.")
+        if command[0] == "powershell.exe":
+            return Completed(0, "PID 7052 종료\nPID 30908 종료")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
+
+    assert lifecycle.terminate_process_tree(30908, log_path) is True
+    assert commands[0] == ["taskkill", "/PID", "30908", "/T", "/F"]
+    assert commands[1][0] == "powershell.exe"
+    content = log_path.read_text(encoding="utf-8")
+    assert "PowerShell 개별 종료" in content
+    assert "PID 7052 종료" in content
+
+
 def test_server_control_status_refresh_and_docker_start_are_non_blocking_by_design():
     source = (ROOT / "tools" / "server_control" / "main.py").read_text(encoding="utf-8")
 

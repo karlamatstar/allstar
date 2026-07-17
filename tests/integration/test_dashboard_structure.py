@@ -12,7 +12,7 @@ def test_top_navigation_has_four_left_and_two_right_tabs():
         "AI 에이전트 챗봇",
         "VOC 챗봇",
         "모니터링",
-        "리포트 모음",
+        "보고서 모음",
         "AI 에이전트 테스트케이스",
         "VOC 테스트케이스",
     ]
@@ -25,6 +25,7 @@ def test_top_navigation_has_four_left_and_two_right_tabs():
 
 
 def test_monitoring_has_four_grafana_child_tabs():
+    assert "?orgId=1&kiosk" in VIEWS
     for label in (
         "AI 상담 실시간 운영",
         "K6 성능 부하 시험",
@@ -48,14 +49,16 @@ def test_monitoring_has_four_grafana_child_tabs():
 
 def test_report_collection_has_six_child_tabs_and_profile_comparison():
     labels = (
-        "AI 상담 챗봇 보고서",
-        "장애·기능 검증 보고서",
-        "서버 연결 성능 보고서",
-        "AI 상담 테스트케이스 보고서",
+        "AI 에이전트 챗봇 보고서",
+        "AI 에이전트 테스트케이스 보고서",
         "VOC 챗봇 보고서",
-        "VOC A~D 테스트케이스 보고서",
+        "VOC 테스트케이스 보고서",
+        "서버 연결 성능 보고서",
+        "장애·기능 검증 보고서",
     )
-    assert all(label in VIEWS for label in labels)
+    report_view = VIEWS.split("def render_reports()", 1)[1].split("def _quality_rows", 1)[0]
+    positions = [report_view.index(label) for label in labels]
+    assert positions == sorted(positions)
     for label in (
         "교차 테스트 (A)",
         "교차 테스트 (B)",
@@ -64,6 +67,17 @@ def test_report_collection_has_six_child_tabs_and_profile_comparison():
         "종합 비교",
     ):
         assert label in VIEWS
+
+
+def test_grafana_follows_browser_system_theme():
+    compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
+    dashboard_root = ROOT / "ops" / "monitoring" / "grafana" / "provisioning" / "dashboards" / "json"
+
+    assert "GF_USERS_DEFAULT_THEME: system" in compose
+    for path in dashboard_root.glob("*.json"):
+        dashboard = json.loads(path.read_text(encoding="utf-8"))
+        assert dashboard.get("style") not in {"light", "dark"}
+    assert "_sync_grafana_theme_with_browser()" in VIEWS
 
 
 def test_ai_and_voc_testcase_child_tabs_are_preserved():

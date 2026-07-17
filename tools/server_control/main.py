@@ -13,6 +13,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from tkinter import messagebox
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from allstar.shared.single_instance import DUPLICATE_INSTANCE_EXIT_CODE, SingleInstanceLock
 from lifecycle import (
     docker_ready,
     ensure_docker_ready,
@@ -25,7 +29,6 @@ from lifecycle import (
 )
 
 
-ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = ROOT / "src"
 PYTHONW = ROOT / ".venv" / "Scripts" / "pythonw.exe"
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
@@ -482,10 +485,22 @@ class ServerControl(tk.Tk):
         self._request_status_refresh()
 
 
-if __name__ == "__main__":
+def main() -> int:
+    instance = SingleInstanceLock("Local\\AllStarServerControlCenter")
+    if not instance.acquire():
+        messagebox.showwarning("이미 실행 중입니다", "서버 관리 프로그램이 이미 실행 중입니다.")
+        return DUPLICATE_INSTANCE_EXIT_CODE
     try:
         ServerControl().mainloop()
+        return 0
     except Exception as error:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         (LOG_DIR / "server_control_launcher.log").write_text(str(error), encoding="utf-8")
         messagebox.showerror("서버 관리 시작 실패", str(error))
+        return 1
+    finally:
+        instance.release()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

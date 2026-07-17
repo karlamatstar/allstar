@@ -54,7 +54,8 @@ _Total/
 │     │  └─ dashboard/                통합 Streamlit 화면
 │     └─ shared/
 │        ├─ paths.py                  프로젝트·로그·리포트 중앙 경로
-│        └─ model_profiles.py         A~D 모델 프로필 단일 원본
+│        ├─ model_profiles.py         A~D 모델 프로필 단일 원본
+│        └─ single_instance.py        Windows 컨트롤러 중복 실행 공통 잠금
 ├─ tools/
 │  ├─ server_control/                 Server Control Center Python 코드
 │  ├─ qa_control/                     QA Control Center Python 코드

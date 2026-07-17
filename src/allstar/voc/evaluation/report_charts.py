@@ -114,17 +114,23 @@ def _grouped_bar_chart(
     series: list[tuple[str, list[float | None]]],
     *,
     suffix: str = "",
+    maximum: float | None = None,
+    integer_axis: bool = False,
 ) -> None:
     numeric = [value for _name, values in series for value in values if value is not None]
     if not numeric:
         _empty_chart(path, title, "측정된 데이터가 없습니다")
         return
-    upper = max(numeric) * 1.18 or 1.0
+    upper = maximum or max(numeric) * 1.18 or 1.0
     image, draw = _canvas(title)
     left, top, right, bottom = 110, 165, WIDTH - 55, HEIGHT - 115
-    for tick in range(6):
-        value = upper * tick / 5
-        y = bottom - (bottom - top) * tick / 5
+    if integer_axis:
+        upper = max(1, float(int(max(numeric) + 0.999999)))
+        tick_values = [float(value) for value in range(int(upper) + 1)]
+    else:
+        tick_values = [upper * tick / 5 for tick in range(6)]
+    for value in tick_values:
+        y = bottom - (bottom - top) * value / upper
         draw.line((left, y, right, y), fill=GRID, width=1)
         draw.text((45, y - 10), f"{value:.0f}", fill="#657084", font=_font(15))
     draw.line((left, top, left, bottom), fill=INK, width=2)

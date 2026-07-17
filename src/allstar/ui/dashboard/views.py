@@ -1235,6 +1235,53 @@ def render_monitoring() -> None:
                 components.iframe(url, height=_grafana_embed_height(uid), scrolling=False)
             else:
                 st.warning("운영 상태 화면(Grafana)이 중지되어 있습니다. AllStar 서버 관리에서 Grafana를 먼저 시작하세요.")
+    _sync_grafana_theme_with_browser()
+
+
+def _sync_grafana_theme_with_browser() -> None:
+    """브라우저 색상 설정이 바뀌면 Grafana iframe과 새 창 링크를 같은 테마로 다시 연다."""
+    dashboard_prefix = f"{GRAFANA.rstrip('/')}/d/"
+    components.html(
+        f"""
+        <script>
+        (() => {{
+            const parentWindow = window.parent;
+            const parentDocument = parentWindow.document;
+            const dashboardPrefix = {json.dumps(dashboard_prefix)};
+            const colorPreference = parentWindow.matchMedia('(prefers-color-scheme: dark)');
+
+            const syncTheme = () => {{
+                const theme = colorPreference.matches ? 'dark' : 'light';
+                const targets = parentDocument.querySelectorAll('iframe[src], a[href]');
+                targets.forEach((target) => {{
+                    const attribute = target.tagName === 'IFRAME' ? 'src' : 'href';
+                    const rawUrl = target.getAttribute(attribute);
+                    if (!rawUrl || !rawUrl.startsWith(dashboardPrefix)) return;
+                    const url = new URL(rawUrl, parentWindow.location.href);
+                    const hasBareKiosk = /[?&]kiosk(?:&|$)/.test(rawUrl);
+                    if (url.searchParams.get('theme') === theme && hasBareKiosk) return;
+                    url.searchParams.delete('kiosk');
+                    url.searchParams.set('theme', theme);
+                    const separator = url.search ? '&' : '?';
+                    target.setAttribute(attribute, `${{url.toString()}}${{separator}}kiosk`);
+                }});
+            }};
+
+            if (typeof colorPreference.addEventListener === 'function') {{
+                colorPreference.addEventListener('change', syncTheme);
+            }} else if (typeof colorPreference.addListener === 'function') {{
+                colorPreference.addListener(syncTheme);
+            }}
+            const observer = new MutationObserver(syncTheme);
+            observer.observe(parentDocument.body, {{childList: true, subtree: true}});
+            parentWindow.requestAnimationFrame(syncTheme);
+            parentWindow.setTimeout(syncTheme, 300);
+            parentWindow.setTimeout(syncTheme, 1000);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
 
 
 def _grafana_embed_height(uid: str) -> int:
@@ -1317,7 +1364,7 @@ def _voc_report_signature() -> tuple[int, ...]:
 
 @st.fragment(run_every=1.0)
 def watch_voc_report_updates() -> None:
-    """보고서 생성 완료를 감지해 리포트 모음을 수동 새로고침 없이 갱신한다."""
+    """보고서 생성 완료를 감지해 보고서 모음을 수동 새로고침 없이 갱신한다."""
     current = _voc_report_signature()
     state_key = "voc_report_signature"
     previous = st.session_state.get(state_key)
@@ -1332,28 +1379,28 @@ def watch_voc_report_updates() -> None:
 
 
 def render_reports() -> None:
-    _section("리포트 모음", "기존 포트폴리오 보고서 4개와 VOC 보고서 2개를 한곳에서 확인합니다.")
+    _section("보고서 모음", "AI 에이전트·VOC 품질 보고서와 운영 시험 보고서 6개를 한곳에서 확인합니다.")
     tabs = st.tabs(
         [
-            "AI 상담 챗봇 보고서",
-            "장애·기능 검증 보고서",
-            "서버 연결 성능 보고서",
-            "AI 상담 테스트케이스 보고서",
+            "AI 에이전트 챗봇 보고서",
+            "AI 에이전트 테스트케이스 보고서",
             "VOC 챗봇 보고서",
-            "VOC A~D 테스트케이스 보고서",
+            "VOC 테스트케이스 보고서",
+            "서버 연결 성능 보고서",
+            "장애·기능 검증 보고서",
         ]
     )
     paths = [
         (AI_AGENT_REPORT_ROOT / "live" / "live_report.md", "실시간 AI 상담과 백그라운드 채점 결과입니다."),
-        (REPORT_ROOT / "defects" / "chaos" / "defect_report.md", "장애 재현과 기능 회귀 결과입니다."),
-        (REPORT_ROOT / "performance" / "performance_report.md", "1명·10명·25명 단계별 독립 성능 시험 결과입니다."),
         (AI_AGENT_REPORT_ROOT / "batch" / "final_quality_report.md", "등록된 AI 테스트케이스 전체의 비교 품질 결과입니다."),
         (VOC_REPORT_ROOT / "live" / "latest" / "voc_live_report.md", "VOC 단발 질문과 A~D 프로필·Judge 결과입니다."),
+        (REPORT_ROOT / "performance" / "performance_report.md", "1명·10명·25명 단계별 독립 성능 시험 결과입니다."),
+        (REPORT_ROOT / "defects" / "chaos" / "defect_report.md", "장애 재현과 기능 회귀 결과입니다."),
     ]
-    for tab, (path, description) in zip(tabs[:5], paths):
+    for tab, (path, description) in zip((tabs[0], tabs[1], tabs[2], tabs[4], tabs[5]), paths):
         with tab:
             _render_markdown_report(tab.label if hasattr(tab, "label") else "보고서", path, description)
-    with tabs[5]:
+    with tabs[3]:
         profile_tabs = st.tabs(
             ["교차 테스트 (A)", "교차 테스트 (B)", "교차 테스트 (C)", "교차 테스트 (D)", "종합 비교"]
         )

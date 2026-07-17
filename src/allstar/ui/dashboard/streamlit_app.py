@@ -316,7 +316,7 @@ watch_voc_report_updates()
         "AI 에이전트 챗봇\n(AI Agent)",
         "VOC 챗봇\n(VOC)",
         "모니터링\n(Monitoring)",
-        "리포트 모음\n(Reports)",
+        "보고서 모음\n(Reports)",
         "AI 에이전트 테스트케이스\n(AI Agent QA)",
         "VOC 테스트케이스\n(VOC QA)",
     ]

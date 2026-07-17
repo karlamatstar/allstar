@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from allstar.ai_agent.evaluation.batch_report_charts import generate_batch_report_charts
+
 MODEL_TYPES = ["rule_based", "api_based"]
 MODEL_LABELS_MD = {"rule_based": "규칙 기반 챗봇", "api_based": "API 기반 챗봇"}
 
@@ -120,7 +122,7 @@ def wrap_details(body_lines: list) -> list:
     return ["<details>", "", "<summary> </summary>", ""] + body_lines + ["", "</details>", ""]
 
 
-def save_markdown_report(results: list, file_path: Path) -> None:
+def save_markdown_report(results: list, file_path: Path, chart_paths: dict[str, Path]) -> None:
     lines = ["# AI 챗봇 품질관리 최종 비교 보고서", ""]
 
     lines += [
@@ -146,7 +148,20 @@ def save_markdown_report(results: list, file_path: Path) -> None:
     lines += wrap_details(section2)
 
     # ------------------------------------------------------------------
-    # 3. 케이스별 상세 비교
+    # 3. 품질 결과 그래프
+    # ------------------------------------------------------------------
+    def chart_target(key: str) -> str:
+        return chart_paths[key].relative_to(file_path.parent).as_posix()
+
+    lines += [
+        "## 3. 품질 결과 그래프", "",
+        f"![테스트케이스별 품질 총점 비교]({chart_target('scores')})", "",
+        f"![모델별 품질 항목 평균점수]({chart_target('axes')})", "",
+        f"![모델별 품질 판정 분포]({chart_target('decisions')})", "",
+    ]
+
+    # ------------------------------------------------------------------
+    # 4. 케이스별 상세 비교
     # ------------------------------------------------------------------
     def score_line(ev: dict) -> str:
         return (
@@ -164,7 +179,7 @@ def save_markdown_report(results: list, file_path: Path) -> None:
             f"규칙기반 {rb_ev['overall_decision']} / API기반 {ab_ev['overall_decision']}"
         )
         section3 += [
-            f"### 3.{i} {heading}", "",
+            f"### 4.{i} {heading}", "",
             f"- 사용자 질문: {result['user_question']}",
             "",
             "#### 규칙 기반 챗봇",
@@ -182,11 +197,11 @@ def save_markdown_report(results: list, file_path: Path) -> None:
             f"- 평가 의견: {ab_ev['summary']}",
             "",
         ]
-    lines += ["## 3. 케이스별 상세 비교", ""]
+    lines += ["## 4. 케이스별 상세 비교", ""]
     lines += wrap_details(section3)
 
     # ------------------------------------------------------------------
-    # 4. 종합 요약 — 모델별/유형별 집계 (N/A는 통과율 분모에서 제외)
+    # 5. 종합 요약 — 모델별/유형별 집계 (N/A는 통과율 분모에서 제외)
     # ------------------------------------------------------------------
     df = pd.DataFrame(_results_to_rows(results))
     total_cases = df["case_id"].nunique()
@@ -250,7 +265,7 @@ def save_markdown_report(results: list, file_path: Path) -> None:
         s = test_type_stats[t]
         section4.append(f"| {test_type_badge(t)} | {s['n']} | {s['pass']} | {s['review']} | {s['fail']} | {s['na']} | {s['pass_rate']}% |")
 
-    lines += ["## 4. 종합 요약", ""]
+    lines += ["## 5. 종합 요약", ""]
     lines += wrap_details(section4)
 
     file_path.write_text("\n".join(lines), encoding="utf-8")
@@ -267,14 +282,17 @@ def generate_all(results: list, reports_dir: Path, timestamp: str) -> None:
 
     save_json_report(results, ts_json)
     save_csv_report(results, ts_csv)
-    save_markdown_report(results, ts_md)
+    rows = pd.DataFrame(_results_to_rows(results))
+    history_charts = generate_batch_report_charts(rows, history_dir / "assets" / timestamp)
+    save_markdown_report(results, ts_md, history_charts)
 
     latest_json = reports_dir / "evaluation_result.json"
     latest_csv  = reports_dir / "evaluation_result.csv"
     latest_md   = reports_dir / "final_quality_report.md"
     shutil.copy2(ts_json, latest_json)
     shutil.copy2(ts_csv, latest_csv)
-    shutil.copy2(ts_md, latest_md)
+    latest_charts = generate_batch_report_charts(rows, reports_dir / "assets")
+    save_markdown_report(results, latest_md, latest_charts)
 
     print(f"  JSON     → {ts_json} (최신본 → {latest_json})")
     print(f"  CSV      → {ts_csv} (최신본 → {latest_csv})")

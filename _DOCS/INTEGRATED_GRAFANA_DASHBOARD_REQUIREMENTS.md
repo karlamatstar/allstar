@@ -2,7 +2,7 @@
 
 > 작성일: 2026-07-17
 > 적용 대상: `_Total` 통합 Streamlit의 운영 상태 화면
-> 상태: **Streamlit 하위 탭 4개와 VOC Grafana JSON 2개 구현, 비API 검증 완료**
+> 상태: **Streamlit 하위 탭 4개·VOC Grafana JSON 2개·브라우저 설정 기반 자동 테마 구현 및 실제 검증 완료**
 
 ## 1. 목적
 
@@ -44,7 +44,7 @@
 
 - 기존 `AI Agent 발표용 운영 모니터링` 내용을 유지한다.
 - 오류율, 요청 수, 응답시간, 채점 결과 등 AI 상담 운영 지표를 표시한다.
-- 기본 조회 범위와 밝은 테마 등 기존 발표용 표시 방식을 유지한다.
+- 기본 조회 범위는 유지하고 테마는 브라우저·운영체제 설정을 따른다.
 
 ### 4.2 K6 성능 부하 시험
 
@@ -91,6 +91,29 @@
 - Grafana 화면 구조가 바뀌면 JSON 기준 계산 결과도 함께 바뀌어야 한다.
 
 `gridPos.y + gridPos.h`의 최댓값에 행 높이와 여백을 적용해 현재 AI 상담은 3666px, K6는 1082px, VOC 두 화면은 각각 최소 900px로 계산한다. 공식 Streamlit iframe 구성요소의 `scrolling=False`를 적용했으며, 실제 브라우저에서 네 iframe 모두 `scrolling=no`와 AI 상담 마지막 패널까지 로드되는 것을 확인했다.
+
+### 6.2 브라우저 설정 기반 자동 테마
+
+- Grafana의 기본 다크 테마를 고정하지 않고 `GF_USERS_DEFAULT_THEME=system`을 적용한다.
+- `system`은 Grafana 공식 설정 기준으로 사용자의 시스템 색상 테마를 따른다.
+- 프로비저닝 JSON의 고정 `style: light` 또는 `style: dark` 값은 사용하지 않는다.
+- 익명 Viewer iframe과 새 창 화면에 같은 Grafana 기본 테마를 적용한다.
+- Grafana 컨테이너를 재생성해야 환경변수 변경이 실제 화면에 반영된다.
+- 2026-07-17 컨테이너 재생성 후 `GF_USERS_DEFAULT_THEME=system`을 확인했고, 라이트 설정 브라우저에서 `theme-light`·`color-scheme: light`와 밝은 배경으로 표시되는 것을 확인했다.
+
+### 6.3 열린 화면의 테마 실시간 동기화
+
+> 브라우저를 라이트에서 다크로 전환했을 때 Streamlit은 즉시 다크로 바뀌지만 이미 로드된 Grafana iframe은 라이트로 남는 현상을 확인했다.
+
+- 통합 대시보드에서 브라우저의 `prefers-color-scheme` 변경을 직접 감시한다.
+- 현재 값이 다크면 Grafana iframe과 새 창 링크에 `theme=dark`, 라이트면 `theme=light`를 명시한다.
+- 브라우저 테마가 바뀌면 네 Grafana iframe의 주소를 갱신해 같은 테마로 다시 로드한다.
+- 새로 생성되거나 Streamlit이 다시 그린 iframe에도 같은 테마가 적용되도록 DOM 변경을 함께 감시한다.
+- 테마 주소를 다시 만들 때 값 없는 `kiosk` 플래그를 URL 끝에 그대로 보존해 Grafana 왼쪽 메뉴와 상단 탐색 영역이 다시 나타나지 않게 한다. `kiosk=tv`는 제한된 상단 조작 영역을 남기므로 iframe 전체 화면에는 사용하지 않는다.
+- `GF_USERS_DEFAULT_THEME=system`은 Grafana 직접 접속과 동기화 코드가 적용되기 전의 기본값으로 유지한다.
+- 실제 라이트 브라우저에서 Grafana iframe 4개와 새 창 링크 4개 모두 `theme=light`가 자동 부여되는 것을 확인했다. 다크 환경에서는 같은 분기에서 `theme=dark`를 사용한다.
+- 후속 실제 화면 검증에서 테마 갱신 과정이 값 없는 `kiosk=`로 바뀌며 좌측 메뉴가 나타났고, `kiosk=tv`에서는 좌측 메뉴는 사라지지만 상단 경로·검색·로그인 영역이 남는 것을 확인했다. 최종 구현은 URL 직렬화 뒤 값 없는 `kiosk` 플래그를 다시 붙여 전체 탐색 UI를 숨긴다.
+- 최종 실제 Streamlit 화면에서 네 iframe 주소가 `theme=light&kiosk`를 유지하고, 좌측 메뉴와 상단 경로·검색·로그인 영역 없이 기간·새로고침 조작과 패널만 표시되는 것을 확인했다.
 
 ## 7. 구현 순서
 

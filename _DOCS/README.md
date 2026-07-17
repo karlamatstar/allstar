@@ -42,12 +42,19 @@
    - VOC 챗봇 5개 품질 하위 탭, 공통 9항목·100점 채점 전환, 2026-07-17 검색 0건 실패 분석과 후속 개선 기준
 16. `AI_AGENT_KNOWLEDGE_SYNC.md`
    - 규칙 기반·API 기반 지식 불일치 원인과 전체 지식 자동 전달·누락 방지 기준
+17. `CONTROL_CENTER_SINGLE_INSTANCE.md`
+   - 서버·품질검사 관리 중복 실행 경고, Windows 공통 잠금과 서버 종료 감시기 예외 처리 기준
+18. `AI_AGENT_TESTCASE_REPORT_CHARTS.md`
+   - AI 에이전트 테스트케이스 정식 보고서의 데이터 기반 PNG 그래프와 최신·이력 보존 기준
+19. `VOC_LIVE_REPORT_PRESENTATION.md`
+   - VOC 챗봇 보고서의 한눈에 보는 품질 현황, A~D 그래프, 접이식 확인 목록과 최신순 채팅 목록 기준
 
 ## 현재 상태
 
 - `src/allstar/`, `tools/`, `ops/`, `tests/`, `_OUTPUT/` 구조 전환 완료
 - Python import와 실행 진입점을 `allstar.*` 기준으로 전환 완료
 - Docker Compose, Server·QA GUI, Streamlit 실행 경로 전환 완료
+- 서버·품질검사 관리가 이미 실행 중이면 경고 후 두 번째 실행만 종료하는 단일 실행 잠금 적용 완료
 - Python 문법 검사와 비AI 자동 테스트 완료
 - 승인된 A 프로필 대표 2건의 생성 파이프라인 실행 완료
 - Anthropic 인증 오류로 독립 평가는 재검증 필요
@@ -59,6 +66,9 @@
 - Grafana iframe 내부 스크롤을 제거하고 JSON 길이에 맞춘 전체 높이 적용 완료
 - 보고서 Markdown 이미지 원위치 표시와 Docker Noto CJK 한글 PNG 적용 완료
 - 통합 Grafana 4개 하위 탭과 VOC Grafana JSON 2개 구현 완료, VOC A~D 정식 보고서 기반 9개 QA 패널·실데이터·Prometheus 영구 보존 검증 완료
+- Grafana의 브라우저·운영체제 설정 기반 자동 라이트·다크 테마와 열린 iframe 실시간 전환 적용
+- 보고서 모음 6개 탭 명칭·순서 정리와 AI 에이전트 테스트케이스 PNG 그래프 3개 생성 완료
+- VOC 챗봇 보고서의 상단 품질 요약, A~D PNG 그래프 3개와 기본 닫힘 상세 목록 구현 완료
 - 통합 대시보드의 상위 탭 6개, 챗봇·모니터링·리포트·테스트케이스 하위 화면 구현 및 비API 검증 완료
 - AI·VOC 테스트케이스 관리/실행 탭 분리와 AI 배치 분석 3개 탭 보존 완료
 - 상위·하위 탭 버튼형 구분, 브라우저 설정 기반 라이트·다크 자동 테마와 1024px·600px·390px 반응형 검증 완료

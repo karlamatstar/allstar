@@ -5,10 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from allstar.shared.single_instance import DUPLICATE_INSTANCE_EXIT_CODE
 from lifecycle import append_shutdown_log, stop_project_services
 
 
-ROOT = Path(__file__).resolve().parents[2]
 MAIN = Path(__file__).with_name("main.py")
 RUNTIME_DIR = ROOT / "_OUTPUT" / "logs" / "services" / "runtime"
 SHUTDOWN_LOG = ROOT / "_OUTPUT" / "logs" / "services" / "shutdown_guard.log"
@@ -42,7 +45,9 @@ def run() -> int:
             creationflags=CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP,
         )
         exit_code = gui.wait()
-        if clean_marker.exists():
+        if exit_code == DUPLICATE_INSTANCE_EXIT_CODE:
+            append_shutdown_log(SHUTDOWN_LOG, f"중복 실행 차단: gui={gui.pid}")
+        elif clean_marker.exists():
             append_shutdown_log(SHUTDOWN_LOG, f"정상 종료 확인: gui={gui.pid}")
         else:
             append_shutdown_log(SHUTDOWN_LOG, f"비정상 종료 감지: gui={gui.pid}, code={exit_code}")

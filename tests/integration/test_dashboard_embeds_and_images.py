@@ -1,3 +1,4 @@
+import inspect
 import json
 from pathlib import Path
 
@@ -15,6 +16,18 @@ def test_grafana_height_uses_last_panel_and_iframe_disables_scrolling(tmp_path, 
     assert views._grafana_embed_height("test-dashboard") == 1690
     source = Path(views.__file__).read_text(encoding="utf-8")
     assert "components.iframe(url, height=_grafana_embed_height(uid), scrolling=False)" in source
+
+
+def test_grafana_iframe_theme_tracks_browser_preference():
+    source = inspect.getsource(views._sync_grafana_theme_with_browser)
+
+    assert "prefers-color-scheme: dark" in source
+    assert "colorPreference.addEventListener('change', syncTheme)" in source
+    assert "const hasBareKiosk = /[?&]kiosk(?:&|$)/.test(rawUrl)" in source
+    assert "url.searchParams.delete('kiosk')" in source
+    assert "`${{url.toString()}}${{separator}}kiosk`" in source
+    assert "url.searchParams.set('theme', theme)" in source
+    assert "iframe[src], a[href]" in source
 
 
 def test_report_markdown_renders_relative_image_in_original_position(tmp_path, monkeypatch):

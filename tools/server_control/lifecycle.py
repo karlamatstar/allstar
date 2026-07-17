@@ -153,7 +153,7 @@ def terminate_process_tree(pid: int, log_path: Path) -> bool:
     completed = subprocess.run(
         ["taskkill", "/PID", str(pid), "/T", "/F"],
         text=True,
-        encoding="utf-8",
+        encoding="mbcs",
         errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -163,7 +163,42 @@ def terminate_process_tree(pid: int, log_path: Path) -> bool:
     output = (completed.stdout or "").strip()
     if output:
         append_shutdown_log(log_path, f"Streamlit 종료 결과: {output}")
-    return completed.returncode == 0
+    if completed.returncode == 0:
+        return True
+
+    append_shutdown_log(log_path, "taskkill 종료 실패로 PowerShell 개별 종료를 시도합니다.")
+    script = (
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); "
+        f"$root = {int(pid)}; $levels = @(@($root)); $frontier = @($root); "
+        "while ($frontier.Count -gt 0) { "
+        "$next = @(); foreach ($parent in $frontier) { "
+        "$children = @(Get-CimInstance Win32_Process -Filter \"ParentProcessId = $parent\"); "
+        "foreach ($child in $children) { $next += [int]$child.ProcessId } }; "
+        "if ($next.Count -gt 0) { $levels += ,@($next) }; $frontier = @($next) }; "
+        "$failed = $false; "
+        "for ($index = $levels.Count - 1; $index -ge 0; $index--) { "
+        "foreach ($target in $levels[$index]) { "
+        "if (Get-Process -Id $target -ErrorAction SilentlyContinue) { "
+        "try { Stop-Process -Id $target -Force -ErrorAction Stop; "
+        "Write-Output \"PID $target 종료\" } "
+        "catch { Write-Output \"PID $target 종료 실패: $($_.Exception.Message)\"; $failed = $true } } } }; "
+        "if ($failed) { exit 1 }"
+    )
+    fallback = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        creationflags=CREATE_NO_WINDOW,
+        timeout=20,
+        check=False,
+    )
+    fallback_output = (fallback.stdout or "").strip()
+    if fallback_output:
+        append_shutdown_log(log_path, f"PowerShell Streamlit 종료 결과: {fallback_output}")
+    return fallback.returncode == 0
 
 
 def streamlit_root_pid(pid: int) -> int:
