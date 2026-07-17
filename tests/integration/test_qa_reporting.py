@@ -185,6 +185,67 @@ def test_voc_profile_runner_can_limit_agent_validation_to_two_cases(tmp_path):
     assert "TC-02" in command
 
 
+def test_failed_voc_profile_draft_preserves_latest_formal_report(tmp_path):
+    runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
+    spec = importlib.util.spec_from_file_location("run_voc_profile_guard_failed", runner_path)
+    assert spec and spec.loader
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    report_dir = tmp_path / "reports" / "d"
+    draft_dir = tmp_path / "logs" / "run-failed" / "report_draft"
+    report_dir.mkdir(parents=True)
+    draft_dir.mkdir(parents=True)
+    (report_dir / "quality_score_report.md").write_text("# 최근 정상 보고서\n", encoding="utf-8")
+    (report_dir / "report_manifest.json").write_text('{"run_id":"good-run"}', encoding="utf-8")
+    (draft_dir / "quality_score_report.md").write_text("# 실패한 부분 보고서\n", encoding="utf-8")
+    manifest = {"run_id": "failed-run", "status": "failed"}
+
+    published = runner.publish_profile_report_if_successful(
+        draft_dir, report_dir, manifest, process_returncode=2, judge_failures=["TC-05"]
+    )
+
+    assert published is False
+    assert (report_dir / "quality_score_report.md").read_text(encoding="utf-8") == "# 최근 정상 보고서\n"
+    assert json.loads((report_dir / "report_manifest.json").read_text(encoding="utf-8"))["run_id"] == "good-run"
+    assert (draft_dir / "quality_score_report.md").exists()
+
+
+def test_successful_voc_profile_draft_replaces_latest_formal_report(tmp_path):
+    runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
+    spec = importlib.util.spec_from_file_location("run_voc_profile_guard_success", runner_path)
+    assert spec and spec.loader
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    report_dir = tmp_path / "reports" / "a"
+    draft_dir = tmp_path / "logs" / "run-good" / "report_draft"
+    report_dir.mkdir(parents=True)
+    (draft_dir / "assets").mkdir(parents=True)
+    (report_dir / "quality_score_report.md").write_text("# 이전 보고서\n", encoding="utf-8")
+    (report_dir / ".gitkeep").write_bytes(b"")
+    (draft_dir / "quality_score_report.md").write_text("# 새 정상 보고서\n", encoding="utf-8")
+    (draft_dir / "llm_judge_result.csv").write_text("case_id,total\nTC-01,90\n", encoding="utf-8")
+    (draft_dir / "assets" / "chart.png").write_bytes(b"png")
+    manifest = {"run_id": "good-run", "status": "completed"}
+
+    published = runner.publish_profile_report_if_successful(
+        draft_dir, report_dir, manifest, process_returncode=0, judge_failures=[]
+    )
+
+    assert published is True
+    assert (report_dir / "quality_score_report.md").read_text(encoding="utf-8") == "# 새 정상 보고서\n"
+    assert json.loads((report_dir / "report_manifest.json").read_text(encoding="utf-8")) == manifest
+    assert (report_dir / "assets" / "chart.png").read_bytes() == b"png"
+    assert (report_dir / ".gitkeep").read_bytes() == b""
+
+
+def test_voc_profile_runner_writes_cases_to_run_draft_before_publishing():
+    source = (ROOT / "tools" / "scripts" / "run_voc_profile.py").read_text(encoding="utf-8")
+
+    assert 'draft_report_dir = log_dir / "report_draft"' in source
+    assert "command = build_judge_command(draft_report_dir, case_ids)" in source
+    assert '_atomic_json(log_dir / "run_manifest.json", manifest)' in source
+
+
 def test_voc_execution_summary_links_formal_profile_report(monkeypatch, tmp_path):
     configure_output_roots(monkeypatch, tmp_path)
     report_root = tmp_path / "_OUTPUT" / "reports"

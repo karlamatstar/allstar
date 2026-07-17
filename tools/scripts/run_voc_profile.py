@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime
@@ -59,6 +60,55 @@ def _atomic_json(path: Path, data: dict) -> None:
     temporary = path.with_suffix(path.suffix + ".tmp")
     temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     temporary.replace(path)
+
+
+def _remove_path(path: Path) -> None:
+    if path.is_dir():
+        shutil.rmtree(path)
+    elif path.exists():
+        path.unlink()
+
+
+def _publish_profile_report(draft_dir: Path, report_dir: Path, manifest: dict) -> None:
+    """검증이 끝난 초안을 프로필의 최신 정식 보고서로 한 번에 교체한다."""
+    report_dir.parent.mkdir(parents=True, exist_ok=True)
+    run_id = str(manifest["run_id"])
+    candidate = report_dir.parent / f".{report_dir.name}.publish-{run_id}"
+    backup = report_dir.parent / f".{report_dir.name}.backup-{run_id}"
+    _remove_path(candidate)
+    _remove_path(backup)
+    shutil.copytree(draft_dir, candidate)
+    if report_dir.exists():
+        for preserved in report_dir.iterdir():
+            if preserved.is_file() and preserved.name.startswith("."):
+                shutil.copy2(preserved, candidate / preserved.name)
+    _atomic_json(candidate / "report_manifest.json", manifest)
+    had_previous = report_dir.exists()
+    try:
+        if had_previous:
+            report_dir.replace(backup)
+        candidate.replace(report_dir)
+    except Exception:
+        if backup.exists():
+            _remove_path(report_dir)
+            backup.replace(report_dir)
+        raise
+    else:
+        _remove_path(backup)
+
+
+def publish_profile_report_if_successful(
+    draft_dir: Path,
+    report_dir: Path,
+    manifest: dict,
+    process_returncode: int,
+    judge_failures: list[str],
+) -> bool:
+    """전체 실행과 채점이 정상 완료된 경우에만 최신 정식 보고서를 갱신한다."""
+    if process_returncode or judge_failures:
+        return False
+    _publish_profile_report(draft_dir, report_dir, manifest)
+    return True
 
 
 def build_judge_command(
@@ -117,25 +167,34 @@ def main() -> int:
     print(f"실행 테스트케이스: {scope} {len(case_ids)}건 ({', '.join(case_ids)})")
     report_dir = VOC_REPORT_ROOT / "testcase" / profile.profile_id.lower()
     log_dir = VOC_LOG_ROOT / "testcase" / profile.profile_id.lower() / run_id
+    draft_report_dir = log_dir / "report_draft"
     env["VOC_JUDGE_LOG_DIR"] = str(log_dir)
     env["VOC_REPORT_RUN_ID"] = run_id
-    command = build_judge_command(report_dir, case_ids)
+    command = build_judge_command(draft_report_dir, case_ids)
     result = subprocess.run(command, cwd=ROOT, env=env)
     judge_logs = sorted(log_dir.glob("llm_judge_*.json"), key=lambda path: path.stat().st_mtime)
     if judge_logs:
         from allstar.voc.evaluation.profile_report import rebuild_profile_report_from_log
 
-        rebuild_profile_report_from_log(judge_logs[-1], report_dir, profile)
-    judge_csv = report_dir / "llm_judge_result.csv"
+        rebuild_profile_report_from_log(judge_logs[-1], draft_report_dir, profile)
+    judge_csv = draft_report_dir / "llm_judge_result.csv"
     judge_failures = judge_failure_ids(judge_csv, case_ids)
     sources = [str(path.relative_to(ROOT)) for path in sorted(log_dir.glob("*.json"))]
-    output_paths = [
-        report_dir / "quality_score_report.md",
-        report_dir / "llm_judge_result.csv",
-        report_dir / "llm_judge_result.json",
-        *sorted((report_dir / "assets").glob("*.png")),
+    draft_output_paths = [
+        draft_report_dir / "quality_score_report.md",
+        draft_report_dir / "llm_judge_result.csv",
+        draft_report_dir / "llm_judge_result.json",
+        *sorted((draft_report_dir / "assets").glob("*.png")),
     ]
-    outputs = [str(path.relative_to(ROOT)) for path in output_paths if path.exists()]
+    draft_output_paths = [path for path in draft_output_paths if path.exists()]
+    if result.returncode or judge_failures:
+        output_paths = draft_output_paths
+    else:
+        output_paths = [
+            report_dir / path.relative_to(draft_report_dir)
+            for path in draft_output_paths
+        ]
+    outputs = [str(path.relative_to(ROOT)) for path in output_paths]
 
     manifest_dir = MANIFEST_ROOT
     manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -152,13 +211,20 @@ def main() -> int:
         "sources": sources,
         "outputs": outputs,
     }
-    profile_manifest = report_dir / "report_manifest.json"
     global_manifest = manifest_dir / f"voc_testcase_{profile.profile_id.lower()}.json"
-    _atomic_json(profile_manifest, manifest)
-    _atomic_json(global_manifest, manifest)
-    from allstar.voc.evaluation.cross_validation import _update_comparison_report
+    _atomic_json(log_dir / "run_manifest.json", manifest)
+    published = publish_profile_report_if_successful(
+        draft_report_dir,
+        report_dir,
+        manifest,
+        result.returncode,
+        judge_failures,
+    )
+    if published:
+        _atomic_json(global_manifest, manifest)
+        from allstar.voc.evaluation.cross_validation import _update_comparison_report
 
-    _update_comparison_report()
+        _update_comparison_report()
     final_status = "failed" if result.returncode or judge_failures else "completed"
     finish_progress(
         run_id,
