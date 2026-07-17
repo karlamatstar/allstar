@@ -4,7 +4,9 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from allstar.ai_agent.api.config import OPENAI_MODEL
 from allstar.ai_agent.api.judge_agent import JudgeUnavailableError, get_evaluation_from_openai
@@ -21,8 +23,9 @@ from allstar.ai_agent.api.metrics import (
     metrics_app,
 )
 from allstar.ai_agent.api.rule_based_agent import get_answer_from_rule_based_agent
-from allstar.ai_agent.api.schemas import ChatRequest, ChatResponse, HealthResponse
+from allstar.ai_agent.api.schemas import ChatRequest, ChatResponse, FaultChatRequest, HealthResponse
 from allstar.ai_agent.api.service_agent import ApiAgentUnavailableError, get_answer_from_api_agent
+from allstar.ai_agent.evaluation.live_faults import record_chat_fault
 from allstar.ai_agent.evaluation.live_report_status import (
     mark_completed,
     mark_evaluating,
@@ -82,6 +85,49 @@ async def fault_lab(scenario: str = "normal", delay_seconds: float = 0.0):
         raise HTTPException(status_code=400, detail="잘못된 파라미터입니다.")
 
     return {"status": "ok", "scenario": scenario}
+
+
+@app.post("/fault-lab/chat", tags=["Chaos Test"])
+async def fault_chat(request: FaultChatRequest) -> JSONResponse:
+    """대시보드 버튼에서만 호출하는 실제 HTTP 503·504 챗봇 장애 시험이다."""
+    started = time.perf_counter()
+    if request.scenario == "http_504":
+        await asyncio.sleep(10.0)
+        status_code = 504
+        message = "채팅 응답 제한시간 10초를 초과했습니다. (504 Gateway Timeout)"
+    else:
+        status_code = 503
+        message = "채팅 서비스를 일시적으로 이용할 수 없습니다. (503 Service Unavailable)"
+
+    latency_ms = (time.perf_counter() - started) * 1000
+    request_id = uuid.uuid4().hex
+    chat_request_latency_seconds.observe(latency_ms / 1000)
+    chat_requests_total.labels(status="error").inc()
+    chat_last_activity_timestamp_seconds.set_to_current_time()
+    for model in (MODEL_API, MODEL_RULE):
+        judge_evaluations_total.labels(decision="N/A", model=model).inc()
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": {
+                "message": message,
+                "request_id": request_id,
+                "case_id": request.case_id,
+                "decision": "N/A",
+                "report_updated": False,
+            },
+        },
+        background=BackgroundTask(
+            record_chat_fault,
+            question=request.question,
+            case_id=request.case_id,
+            fault_type=request.scenario,
+            error_message=message,
+            latency_ms=latency_ms,
+            http_status=status_code,
+            request_id=request_id,
+        ),
+    )
 
 def _create_na_evaluation(reason: str) -> dict:
     return {

@@ -19,7 +19,8 @@ if not logger.handlers:
 
 
 def log_conversation(question: str, answer: str, latency_ms: float, status: str = "success",
-                     rule_answer: str | None = None, request_id: str | None = None) -> None:
+                     rule_answer: str | None = None, request_id: str | None = None,
+                     fault: dict | None = None) -> None:
     """대화 1턴을 JSONL로 기록합니다 (Grafana/Prometheus는 숫자 지표만, 원문 대화는 여기 로그 파일에 남긴다).
     answer는 API 기반 에이전트의 주 답변, rule_answer는 비교용 규칙 기반 답변.
     request_id는 채점 로그(live_evaluations.jsonl)와 짝을 맞추는 상관관계 ID."""
@@ -32,6 +33,8 @@ def log_conversation(question: str, answer: str, latency_ms: float, status: str 
         "latency_ms": round(latency_ms, 1),
         "status": status,
     }
+    if fault:
+        entry["fault"] = fault
     with CONVERSATION_LOG_LOCK, open(CONVERSATION_LOG_FILE, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 

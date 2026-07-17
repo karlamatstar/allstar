@@ -3,6 +3,7 @@
 import json
 
 import allstar.ai_agent.evaluation.live_report_generator as live_report
+import pandas as pd
 
 
 def _fake_evaluation(decision: str, score: int) -> dict:
@@ -90,6 +91,50 @@ def test_model_stats_keeps_na_separate():
     assert stats["not_scored"] == 1
     assert stats["pass_rate"] == 50.0
     assert stats["avg_total"] == 15.0
+
+
+def test_fault_chat_is_rendered_as_na_with_error_metadata(tmp_path):
+    conversations = [{
+        "timestamp": "2026-07-18T01:00:00+00:00",
+        "request_id": "fault-1",
+        "question": "임의 질문",
+        "answer": "503 오류",
+        "rule_answer": "503 오류",
+        "latency_ms": 15.0,
+        "status": "error",
+        "fault": {
+            "type": "http_503",
+            "http_status": 503,
+            "case_id": "TC-001",
+            "error_detail": "service unavailable",
+        },
+    }]
+    na = live_report.AXES
+    evaluation = {
+        **{axis: {"score": None, "reason": "인프라 장애"} for axis in na},
+        "total_score": None,
+        "overall_decision": "N/A",
+        "summary": "인프라 장애로 평가 불가",
+    }
+    evaluations = [
+        {"request_id": "fault-1", "question": "임의 질문", "model": model, "evaluation": evaluation}
+        for model in ("api", "rule")
+    ]
+
+    rows = live_report.build_rows(conversations, evaluations)
+    frame = pd.DataFrame(rows)
+    report_path = tmp_path / "fault_report.md"
+    live_report.save_live_markdown_report(frame, report_path)
+
+    assert len(rows) == 2
+    assert all(row["overall_decision"] == "N/A" for row in rows)
+    assert all(row["total_score"] is None for row in rows)
+    markdown = report_path.read_text(encoding="utf-8")
+    assert "장애 유형: http_503" in markdown
+    assert "HTTP 상태: 503" in markdown
+    assert "선택 테스트케이스: TC-001" in markdown
+    assert "기술 오류: service unavailable" in markdown
+    assert "종합 점수: N/A" in markdown
 
 
 def test_generate_live_report_without_logs(tmp_path, monkeypatch):

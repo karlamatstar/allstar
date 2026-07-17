@@ -77,6 +77,56 @@ def test_chat_request_schema_omits_removed_fault_injection_field():
     assert "simulate_api_disconnect" not in schema["properties"]
 
 
+def test_explicit_503_fault_returns_http_error_and_records_na(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        main_module,
+        "record_chat_fault",
+        lambda **kwargs: events.append(kwargs) or {"request_id": kwargs["request_id"], "report_ok": True},
+    )
+    monkeypatch.setattr(
+        main_module,
+        "get_answer_from_api_agent",
+        lambda _question: (_ for _ in ()).throw(AssertionError("실제 AI 호출 금지")),
+    )
+
+    response = client.post(
+        "/fault-lab/chat",
+        json={"question": "임의 질문", "case_id": "TC-001", "scenario": "http_503"},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["decision"] == "N/A"
+    assert events[0]["fault_type"] == "http_503"
+    assert events[0]["http_status"] == 503
+    assert events[0]["case_id"] == "TC-001"
+
+
+def test_explicit_504_fault_waits_ten_seconds_before_error(monkeypatch):
+    waits = []
+    events = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+
+    monkeypatch.setattr(main_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(
+        main_module,
+        "record_chat_fault",
+        lambda **kwargs: events.append(kwargs) or {"request_id": kwargs["request_id"], "report_ok": True},
+    )
+
+    response = client.post(
+        "/fault-lab/chat",
+        json={"question": "임의 질문", "case_id": "TC-002", "scenario": "http_504"},
+    )
+
+    assert response.status_code == 504
+    assert waits == [10.0]
+    assert events[0]["fault_type"] == "http_504"
+    assert events[0]["http_status"] == 504
+
+
 def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):
     events = []
     evaluation = {

@@ -185,10 +185,33 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
     box-shadow:0 0 0 2px rgba(245,158,11,.06);
 }
 [class*="st-key-required_api_confirm_"] [data-testid="stCheckbox"] label p {font-weight:750; color:var(--allstar-text);}
-[class*="st-key-ai_chat_panel"] {gap:0 !important;}
-[class*="st-key-ai_chat_panel"] > div {gap:0 !important;}
-[class*="st-key-ai_chat_panel"] [data-testid="stVerticalBlockBorderWrapper"] {border-radius:12px 12px 0 0 !important;}
-[class*="st-key-ai_chat_panel"] [data-testid="stChatInput"] {border-radius:0 0 12px 12px !important; margin-top:-1px;}
+[class*="st-key-ai_chat_panel"], [class*="st-key-voc_chat_panel"] {gap:0 !important;}
+[class*="st-key-ai_chat_panel"] > div, [class*="st-key-voc_chat_panel"] > div {gap:0 !important;}
+[class*="st-key-ai_chat_panel"] [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-voc_chat_panel"] [data-testid="stVerticalBlockBorderWrapper"] {border-radius:12px 12px 0 0 !important;}
+[class*="st-key-ai_chat_panel"] [data-testid="stChatInput"],
+[class*="st-key-voc_chat_panel"] [data-testid="stChatInput"] {border-radius:0 0 12px 12px !important; margin-top:-1px;}
+[class*="st-key-ai_chat_server_stopping_notice"],
+[class*="st-key-ai_chat_server_down_notice"],
+[class*="st-key-ai_chat_server_recovered_notice"],
+[class*="st-key-voc_chat_server_down_notice"],
+[class*="st-key-voc_chat_server_recovered_notice"] {
+    box-sizing:border-box; width:min(100%, 640px); margin:1rem auto !important;
+    text-align:center;
+}
+[class*="st-key-ai_chat_server_stopping_notice"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color:rgba(245,158,11,.65) !important; background:rgba(245,158,11,.10) !important;
+}
+[class*="st-key-ai_chat_server_down_notice"] [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-voc_chat_server_down_notice"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color:rgba(239,68,68,.72) !important; background:rgba(239,68,68,.10) !important;
+}
+[class*="st-key-ai_chat_server_recovered_notice"] [data-testid="stVerticalBlockBorderWrapper"],
+[class*="st-key-voc_chat_server_recovered_notice"] [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color:rgba(34,197,94,.65) !important; background:rgba(34,197,94,.10) !important;
+}
+.ai-server-status-title {font-size:1.05rem; font-weight:900; color:var(--allstar-text); margin:.15rem 0 .45rem;}
+.ai-server-status-message {color:var(--allstar-muted); line-height:1.55; margin:0 0 .75rem;}
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
     width:fit-content !important; max-width:82%; margin-left:auto; flex-direction:row-reverse;
     border:1px solid rgba(47,128,237,.26); background:rgba(47,128,237,.10) !important;

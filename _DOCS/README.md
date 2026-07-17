@@ -58,6 +58,10 @@
    - 완료 기능을 제외한 실제 미완료·재검증·AWS 검토 항목의 우선순위
 24. `DASHBOARD_K6_LOAD_TEST_PLAN.md`
    - K6 부하 테스트 상위 탭, 7개 시험 카드, 실행 상태·중지·터미널과 Docker K6 필수 조건
+25. `AI_CHAT_FAULT_TEST_BUTTONS.md`
+   - AI 챗봇 503·504·실제 서버 중단 버튼, N/A 로그·보고서와 재접속 기준
+26. `CHAT_SERVER_STATUS_AND_RECONNECT.md`
+   - AI·VOC 채팅 서버별 Health 감지, 입력 잠금, 중앙 중단 안내와 독립 재접속 기준
 
 ## 문서 상태 해석 원칙
 

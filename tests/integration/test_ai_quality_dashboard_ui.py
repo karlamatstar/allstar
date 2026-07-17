@@ -11,7 +11,7 @@ def test_ai_chat_confirmation_and_chat_panel_order_are_explicit():
     section = VIEWS[VIEWS.index("def render_ai_chat"):VIEWS.index("def _render_profile_cards")]
     assert section.index('"ai_chat_api_confirm"') < section.index('key="ai_chat_panel"')
     assert section.index('key="ai_chat_panel"') < section.index('key="ai_chat_input"')
-    assert "disabled=not api_confirmed or bool(pending)" in section
+    assert "disabled=not api_confirmed or bool(pending) or server_down" in section
 
 
 def test_ai_chat_shows_user_first_and_typing_state_inside_chat_window():
@@ -47,6 +47,38 @@ def test_live_and_batch_breakdowns_share_radar_and_exact_score_table():
     assert 'key="ai_live_breakdown"' in VIEWS
     assert 'key="ai_batch_breakdown"' in VIEWS
     assert "quality-score-help" in APP
+
+
+def test_ai_chat_fault_buttons_and_reconnect_are_explicit():
+    assert "503 서비스 이용 불가 시험" in VIEWS
+    assert "504 시간 초과 시험" in VIEWS
+    assert "채팅 서버 중단 시험" in VIEWS
+    assert "외부 AI API를 호출하지 않으므로 API 비용이 발생하지 않습니다" in VIEWS
+    assert "채팅 서버 재접속" in VIEWS
+    assert "stop_chat_server_and_record" in VIEWS
+    assert "AI 성능 실패가 아닌 인프라·통신 장애" in VIEWS
+    assert 'if _start_ai_fault_request(history, "server_down")' in VIEWS
+    assert "ai_chat_server_down_confirm" not in VIEWS
+    assert "실제 채팅 서버 중단 실행" not in VIEWS
+    assert "서버 중단 취소" not in VIEWS
+    assert 'key="ai_chat_server_down_notice"' in VIEWS
+    assert "서버 중단 결과를 AI 답변 말풍선" in (ROOT / "_DOCS" / "AI_CHAT_FAULT_TEST_BUTTONS.md").read_text(encoding="utf-8")
+    assert "st-key-ai_chat_server_down_notice" in APP
+
+
+def test_ai_and_voc_chat_servers_share_passive_down_and_reconnect_ui():
+    assert '@st.fragment(run_every="3s")\ndef _watch_ai_chat_server' in VIEWS
+    assert '@st.fragment(run_every="3s")\ndef _watch_voc_chat_server' in VIEWS
+    assert 'state_prefix="ai_chat"' in VIEWS
+    assert 'state_prefix="voc_chat"' in VIEWS
+    assert 'key="voc_chat_server_down_notice"' in VIEWS
+    assert "⚠ VOC 채팅 서버 중단" in VIEWS
+    assert "VOC 채팅 서버 재접속" in VIEWS
+    assert "reconnect_voc_chat_server(VOC_API)" in VIEWS
+    assert "disabled=bool(pending) or not api_confirmed or server_down" in VIEWS
+    assert 'bool(pending) or server_down,\n        "voc_chat_profile"' in VIEWS
+    assert "VOC 채팅 서버 중단 시험" not in VIEWS
+    assert "st-key-voc_chat_server_down_notice" in APP
 
 
 def test_live_and_batch_details_keep_the_same_renderer_with_distinct_keys():

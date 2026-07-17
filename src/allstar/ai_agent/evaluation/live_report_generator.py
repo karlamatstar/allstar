@@ -67,6 +67,7 @@ def build_rows(conversations: list[dict], evaluations: list[dict]) -> list[dict]
     rows = []
     for conv in conversations:
         request_id = conv.get("request_id")
+        fault = conv.get("fault") if isinstance(conv.get("fault"), dict) else {}
         answers = {"api": conv.get("answer"), "rule": conv.get("rule_answer")}
         for model, answer in answers.items():
             if answer is None:  # 비교 응답 도입 전 로그에는 rule_answer가 없다
@@ -84,6 +85,11 @@ def build_rows(conversations: list[dict], evaluations: list[dict]) -> list[dict]
                 "model": model,
                 "ai_answer": answer,
                 "latency_ms": conv.get("latency_ms"),
+                "status": conv.get("status", "success"),
+                "fault_type": fault.get("type"),
+                "http_status": fault.get("http_status"),
+                "source_case_id": fault.get("case_id"),
+                "error_detail": fault.get("error_detail"),
                 "total_score": evaluation.get("total_score"),
                 "overall_decision": decision,
                 "summary": evaluation.get("summary", ""),
@@ -198,12 +204,27 @@ def save_live_markdown_report(df: pd.DataFrame, file_path: Path) -> None:
         section3.append("- FAIL/REVIEW/N/A 사례가 없습니다.")
     else:
         for i, (_, row) in enumerate(problems.iterrows(), start=1):
+            score_text = f"{float(row['total_score']):g} / 25" if pd.notna(row["total_score"]) else "N/A"
+            fault_type = row.get("fault_type")
+            http_status = row.get("http_status")
+            case_id = row.get("source_case_id")
+            error_detail = row.get("error_detail")
+            fault_lines = []
+            if pd.notna(fault_type):
+                fault_lines.append(f"- 장애 유형: {fault_type}")
+            if pd.notna(http_status):
+                fault_lines.append(f"- HTTP 상태: {int(http_status)}")
+            if pd.notna(case_id):
+                fault_lines.append(f"- 선택 테스트케이스: {case_id}")
+            if pd.notna(error_detail):
+                fault_lines.append(f"- 기술 오류: {error_detail}")
             section3 += [
                 f"### 3.{i} {row['시각_kst']} (KST) · {MODEL_LABELS.get(row['model'], row['model'])} · {row['overall_decision']}",
                 "",
                 f"- 사용자 질문: {row['question']}",
                 f"- 답변: {row['ai_answer']}",
-                f"- 종합 점수: {row['total_score']} / 25 — {decision_badge(row['overall_decision'])}",
+                *fault_lines,
+                f"- 종합 점수: {score_text} — {decision_badge(row['overall_decision'])}",
                 f"- 평가 의견: {row['summary']}",
                 "",
             ]
@@ -213,13 +234,14 @@ def save_live_markdown_report(df: pd.DataFrame, file_path: Path) -> None:
     # ------------------------------------------------------------------
     # 4. 대화 목록 (최근 50건)
     # ------------------------------------------------------------------
-    section4 = ["| 시각 (KST) | 모델 | 질문 | 판정 | 총점 |", "|---|---|---|---|---|"]
+    section4 = ["| 시각 (KST) | 모델 | 질문 | 처리 상태 | 판정 | 총점 |", "|---|---|---|---|---|---|"]
     recent = df.sort_values("timestamp", ascending=False).head(50)
     for _, row in recent.iterrows():
         question_short = str(row["question"])[:40]
         section4.append(
             f"| {row['시각_kst']} | {MODEL_LABELS.get(row['model'], row['model'])} | {question_short} | "
-            f"{decision_badge(row['overall_decision'])} | {row['total_score'] if pd.notna(row['total_score']) else '-'} |"
+            f"{row.get('fault_type') if pd.notna(row.get('fault_type')) else row.get('status', 'success')} | "
+            f"{decision_badge(row['overall_decision'])} | {row['total_score'] if pd.notna(row['total_score']) else 'N/A'} |"
         )
     lines += ["## 4. 채팅 및 채점 목록", ""]
     lines += _details(f"최근 채팅·채점 목록 열기 ({len(recent)}행, 최대 50행)", section4)

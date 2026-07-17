@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import random
 import re
 import subprocess
 import sys
@@ -33,6 +34,12 @@ from allstar.shared.paths import (
 from allstar.voc.evaluation.progress import read_progress
 from allstar.voc.evaluation.runtime_support import load_json as load_voc_json
 from allstar.voc.api.validation import is_valid_question_text
+from allstar.ui.dashboard.ai_chat_fault_control import (
+    chat_server_health,
+    reconnect_chat_server,
+    reconnect_voc_chat_server,
+    stop_chat_server_and_record,
+)
 from allstar.ui.dashboard.k6_load_runner import (
     K6_INSTALL_URL,
     K6_MAX_DURATION,
@@ -149,6 +156,66 @@ def _localize_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _clear_ai_live_caches() -> None:
     _read_csv.clear()
     _read_jsonl.clear()
+
+
+@st.cache_data(ttl=2, show_spinner=False)
+def _ai_chat_server_health() -> tuple[bool, str]:
+    return chat_server_health(PORTFOLIO_API, timeout=0.8)
+
+
+@st.cache_data(ttl=2, show_spinner=False)
+def _voc_chat_server_health() -> tuple[bool, str]:
+    return chat_server_health(VOC_API, timeout=0.8)
+
+
+def _sync_chat_server_state(
+    health_reader: Any,
+    *,
+    state_prefix: str,
+    down_message: str,
+) -> bool:
+    """실제 Health와 화면 잠금 상태를 맞추고 변경 여부를 반환한다."""
+    healthy, _detail = health_reader()
+    down_key = f"{state_prefix}_server_down"
+    message_key = f"{state_prefix}_server_down_message"
+    recovered_key = f"{state_prefix}_server_recovered"
+    was_down = bool(st.session_state.get(down_key))
+    if healthy:
+        if not was_down:
+            return False
+        st.session_state[down_key] = False
+        st.session_state.pop(message_key, None)
+        st.session_state[recovered_key] = _local_time_text()
+        return True
+    if was_down:
+        return False
+    st.session_state[down_key] = True
+    st.session_state[message_key] = down_message
+    st.session_state.pop(recovered_key, None)
+    return True
+
+
+@st.fragment(run_every="3s")
+def _watch_ai_chat_server() -> None:
+    pending = st.session_state.get("ai_chat_pending")
+    if pending and pending.get("fault_type") == "server_down":
+        return
+    if _sync_chat_server_state(
+        _ai_chat_server_health,
+        state_prefix="ai_chat",
+        down_message="채팅 서버가 중단되어 답변을 받을 수 없습니다. 서버를 다시 시작해 주세요.",
+    ):
+        st.rerun(scope="app")
+
+
+@st.fragment(run_every="3s")
+def _watch_voc_chat_server() -> None:
+    if _sync_chat_server_state(
+        _voc_chat_server_health,
+        state_prefix="voc_chat",
+        down_message="VOC 채팅 서버가 중단되어 답변을 받을 수 없습니다. 서버를 다시 시작해 주세요.",
+    ):
+        st.rerun(scope="app")
 
 
 def _ai_report_status() -> dict[str, Any]:
@@ -704,6 +771,72 @@ def _request_ai_chat(question: str) -> dict[str, Any]:
         return {"ok": False, "error": str(error)}
 
 
+def _request_ai_fault(question: str, case_id: str, scenario: str) -> dict[str, Any]:
+    """명시적 버튼으로만 503·504 장애 시험 API를 호출한다."""
+    try:
+        with httpx.Client(timeout=httpx.Timeout(20.0, connect=3.0)) as client:
+            response = client.post(
+                f"{PORTFOLIO_API}/fault-lab/chat",
+                json={"question": question, "case_id": case_id, "scenario": scenario},
+            )
+        try:
+            body = response.json()
+        except ValueError:
+            body = {}
+        detail = body.get("detail") if isinstance(body, dict) else {}
+        detail = detail if isinstance(detail, dict) else {"message": str(detail or response.text)}
+        return {
+            "ok": False,
+            "fault": True,
+            "fault_type": scenario,
+            "status_code": response.status_code,
+            "error": detail.get("message") or f"HTTP {response.status_code}",
+            "request_id": detail.get("request_id"),
+            "report_updated": detail.get("report_updated", False),
+        }
+    except Exception as error:
+        return {"ok": False, "error": f"장애 시험 API 연결 실패: {error}"}
+
+
+def _random_ai_testcase() -> dict[str, Any] | None:
+    cases = _read_json(AI_CASES_PATH, [])
+    valid = [case for case in cases if str(case.get("user_question") or "").strip()]
+    return random.SystemRandom().choice(valid) if valid else None
+
+
+def _start_ai_fault_request(history: list[dict[str, Any]], scenario: str) -> bool:
+    case = _random_ai_testcase()
+    if not case:
+        st.error("장애 시험에 사용할 AI 테스트케이스가 없습니다.")
+        return False
+    question = str(case["user_question"]).strip()
+    case_id = str(case.get("case_id") or "미지정")
+    st.session_state.pop("ai_chat_server_recovered", None)
+    history.append({
+        "role": "user",
+        "content": question,
+        "label": f"장애 시험 자동 입력 · {case_id}",
+        "timestamp": _local_time_text(),
+    })
+    if scenario == "server_down":
+        future = AI_CHAT_EXECUTOR.submit(
+            stop_chat_server_and_record,
+            question=question,
+            case_id=case_id,
+            api_url=PORTFOLIO_API,
+        )
+    else:
+        future = AI_CHAT_EXECUTOR.submit(_request_ai_fault, question, case_id, scenario)
+    st.session_state.ai_chat_pending = {
+        "question": question,
+        "case_id": case_id,
+        "fault_type": scenario,
+        "started_at": time.monotonic(),
+        "future": future,
+    }
+    return True
+
+
 def _complete_ai_chat_request(history: list[dict[str, Any]], pending: dict[str, Any]) -> bool:
     """완료된 백그라운드 요청을 대화 기록으로 옮기고 처리 여부를 반환한다."""
     future = pending.get("future")
@@ -726,6 +859,23 @@ def _complete_ai_chat_request(history: list[dict[str, Any]], pending: dict[str, 
                 "label": "규칙 기반", "timestamp": response_time,
             })
         _clear_ai_live_caches()
+    elif result.get("fault"):
+        if result.get("server_down"):
+            st.session_state.ai_chat_server_down = True
+            st.session_state.ai_chat_server_down_message = result.get(
+                "error", "채팅 서버가 중단되어 답변을 받을 수 없습니다."
+            )
+        else:
+            status_code = result.get("status_code")
+            code_text = f"HTTP {status_code}" if status_code else "서버 연결 실패"
+            history.append({
+                "role": "assistant",
+                "content": f"{result.get('error', '장애가 발생했습니다')}\n\n품질 판정: N/A (AI 성능 실패가 아닌 인프라·통신 장애)",
+                "label": f"장애 시험 · {code_text}",
+                "timestamp": response_time,
+            })
+        _clear_ai_live_caches()
+        _ai_chat_server_health.clear()
     else:
         history.append({
             "role": "assistant", "content": f"AI 에이전트 서버 연결 실패: {result.get('error', '원인 없음')}",
@@ -742,13 +892,17 @@ def render_ai_chat() -> None:
     )
     with tab_chat:
         history = st.session_state.setdefault("ai_chat_history", [])
+        pending = st.session_state.get("ai_chat_pending")
+        _watch_ai_chat_server()
+        server_down = bool(st.session_state.get("ai_chat_server_down"))
         api_confirmed = _required_api_confirmation(
             "ai_chat_api_confirm",
             "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
         )
-        pending = st.session_state.get("ai_chat_pending")
         if pending and _complete_ai_chat_request(history, pending):
             st.rerun()
+        pending = st.session_state.get("ai_chat_pending")
+        server_down = bool(st.session_state.get("ai_chat_server_down"))
         with st.container(key="ai_chat_panel"):
             with st.container(height=520, border=True, autoscroll=True):
                 if not history:
@@ -760,15 +914,73 @@ def render_ai_chat() -> None:
                         time_text = message.get("timestamp")
                         if label or time_text:
                             st.caption(" · ".join(value for value in (label, time_text) if value))
-                if pending:
+                if pending and pending.get("fault_type") == "server_down":
+                    with st.container(key="ai_chat_server_stopping_notice", border=True):
+                        st.markdown(
+                            "<div class='ai-server-status-title'>채팅 서버 중단 진행 중</div>"
+                            "<div class='ai-server-status-message'>서버를 중단하고 실제 연결 실패를 확인하고 있습니다.</div>",
+                            unsafe_allow_html=True,
+                        )
+                elif pending:
                     with st.chat_message("assistant"):
                         st.markdown("<div class='ai-typing-indicator'>답변을 입력하고 있습니다<span>...</span></div>", unsafe_allow_html=True)
+                if server_down:
+                    with st.container(key="ai_chat_server_down_notice", border=True):
+                        st.markdown(
+                            "<div class='ai-server-status-title'>⚠ 채팅 서버 중단</div>"
+                            f"<div class='ai-server-status-message'>{html.escape(str(st.session_state.get('ai_chat_server_down_message') or '채팅 서버가 중단되어 답변을 받을 수 없습니다. 서버를 다시 시작해 주세요.'))}</div>",
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(
+                            "채팅 서버 재접속",
+                            key="ai_chat_reconnect",
+                            type="primary",
+                            disabled=bool(pending),
+                            width="stretch",
+                        ):
+                            with st.spinner("채팅 서버를 다시 시작하고 연결 상태를 확인하고 있습니다..."):
+                                reconnect_result = reconnect_chat_server(PORTFOLIO_API)
+                            if reconnect_result.get("ok"):
+                                st.session_state.ai_chat_server_down = False
+                                st.session_state.pop("ai_chat_server_down_message", None)
+                                st.session_state.ai_chat_server_recovered = _local_time_text()
+                                _ai_chat_server_health.clear()
+                                st.rerun()
+                            else:
+                                st.error(reconnect_result.get("error", "채팅 서버 재접속에 실패했습니다."))
+                elif st.session_state.get("ai_chat_server_recovered"):
+                    with st.container(key="ai_chat_server_recovered_notice", border=True):
+                        st.markdown(
+                            "<div class='ai-server-status-title'>✓ 채팅 서버 재접속 완료</div>"
+                            "<div class='ai-server-status-message'>이제 새로운 질문을 입력할 수 있습니다.</div>",
+                            unsafe_allow_html=True,
+                        )
             question = st.chat_input(
                 "AI 에이전트에게 질문하세요",
                 key="ai_chat_input",
-                disabled=not api_confirmed or bool(pending),
+                disabled=not api_confirmed or bool(pending) or server_down,
             )
+        st.info(
+            "503·504·채팅 서버 중단 시험은 외부 AI API를 호출하지 않으므로 API 비용이 발생하지 않습니다. "
+            "시험 결과는 대화·보고서에 N/A로 기록됩니다."
+        )
+        cases_available = bool(_read_json(AI_CASES_PATH, []))
+        fault_disabled = bool(pending) or server_down or not cases_available
+        fault_503, fault_504, fault_down = st.columns(3)
+        with fault_503:
+            if st.button("503 서비스 이용 불가 시험", disabled=fault_disabled, width="stretch"):
+                if _start_ai_fault_request(history, "http_503"):
+                    st.rerun()
+        with fault_504:
+            if st.button("504 시간 초과 시험", disabled=fault_disabled, width="stretch"):
+                if _start_ai_fault_request(history, "http_504"):
+                    st.rerun()
+        with fault_down:
+            if st.button("채팅 서버 중단 시험", disabled=fault_disabled, width="stretch"):
+                if _start_ai_fault_request(history, "server_down"):
+                    st.rerun()
         if question:
+            st.session_state.pop("ai_chat_server_recovered", None)
             history.append({"role": "user", "content": question, "label": "사용자", "timestamp": _local_time_text()})
             st.session_state.ai_chat_pending = {
                 "question": question,
@@ -1136,63 +1348,103 @@ def _render_voc_detail(frame: pd.DataFrame) -> None:
 
 
 def _render_voc_chat_conversation() -> None:
-    profiles = _get_json(f"{VOC_API}/profiles") or public_profiles()
     pending = st.session_state.get("voc_pending")
+    _watch_voc_chat_server()
+    server_down = bool(st.session_state.get("voc_chat_server_down"))
+    profiles = _get_json(f"{VOC_API}/profiles") or public_profiles()
     selected_key = "voc_chat_profile_selected"
     selected = st.session_state.setdefault(selected_key, "A")
     api_confirmed = _required_api_confirmation(
         "voc_chat_api_confirm",
         "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
     )
-    _render_profile_cards(list(profiles), selected, bool(pending), "voc_chat_profile", api_confirmed)
+    _render_profile_cards(
+        list(profiles),
+        selected,
+        bool(pending) or server_down,
+        "voc_chat_profile",
+        api_confirmed,
+    )
     st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델(Judge)의 조합입니다. 현재 질문 한 건에만 적용됩니다.")
 
     history = st.session_state.setdefault("voc_chat_history", [])
-    with st.container(height=520, border=True, autoscroll=True):
-        if not history:
-            st.caption("VOC 관련 질문을 입력하면 이 영역에 메신저 형태로 대화와 7단계 처리 결과가 표시됩니다.")
-        for message in history:
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-                if message.get("meta"):
-                    st.caption(message["meta"])
-                if message.get("status"):
-                    with st.expander("7단계 처리 결과", expanded=False):
-                        _render_stage_explorer(message["status"], f"voc_history_{message['status']['request_id']}")
+    with st.container(key="voc_chat_panel"):
+        with st.container(height=520, border=True, autoscroll=True):
+            if not history:
+                st.caption("VOC 관련 질문을 입력하면 이 영역에 메신저 형태로 대화와 7단계 처리 결과가 표시됩니다.")
+            for message in history:
+                with st.chat_message(message["role"]):
+                    st.write(message["content"])
+                    if message.get("meta"):
+                        st.caption(message["meta"])
+                    if message.get("status"):
+                        with st.expander("7단계 처리 결과", expanded=False):
+                            _render_stage_explorer(message["status"], f"voc_history_{message['status']['request_id']}")
 
-        if pending:
-            status = _get_json(f"{VOC_API}/chat/{pending}/status")
-            if isinstance(status, dict):
-                st.markdown("### 현재 질문 처리 과정")
-                _render_stage_explorer(status, f"voc_pending_{pending}")
-                terminal = status["status"] in {"completed", "failed", "no_data"}
-                st.progress(100 if terminal else min(95, int(status.get("elapsed_seconds", 0)) + 1))
-                st.caption(f"{status['current_stage']} · {status.get('elapsed_seconds', 0):.1f}초 · 프로필 {status['profile_id']}")
-                if terminal:
-                    result = status.get("result") or {}
-                    judge = status.get("judge") or {}
-                    if status["status"] in {"completed", "no_data"}:
-                        answer = result.get("answer") or result.get("policy") or result.get("summary")
-                    else:
-                        answer = "VOC 처리 중 문제가 발생했습니다. 아래 7단계 처리 결과에서 실제 실패 단계와 기술 상세를 확인해 주세요."
-                    meta = (
-                        f"프로필 {status['profile_id']} · {status.get('elapsed_seconds', 0):.1f}초 · "
-                        f"Judge {judge.get('total', 'N/A')} / {judge.get('verdict', 'N/A')} · {_local_time_text()}"
-                    )
-                    st.session_state.voc_chat_history.append({"role": "assistant", "content": answer or "결과 없음", "meta": meta, "status": status})
-                    st.session_state.voc_pending = None
-                    _clear_voc_live_caches()
+            if pending and not server_down:
+                status = _get_json(f"{VOC_API}/chat/{pending}/status")
+                if isinstance(status, dict):
+                    st.markdown("### 현재 질문 처리 과정")
+                    _render_stage_explorer(status, f"voc_pending_{pending}")
+                    terminal = status["status"] in {"completed", "failed", "no_data"}
+                    st.progress(100 if terminal else min(95, int(status.get("elapsed_seconds", 0)) + 1))
+                    st.caption(f"{status['current_stage']} · {status.get('elapsed_seconds', 0):.1f}초 · 프로필 {status['profile_id']}")
+                    if terminal:
+                        result = status.get("result") or {}
+                        judge = status.get("judge") or {}
+                        if status["status"] in {"completed", "no_data"}:
+                            answer = result.get("answer") or result.get("policy") or result.get("summary")
+                        else:
+                            answer = "VOC 처리 중 문제가 발생했습니다. 아래 7단계 처리 결과에서 실제 실패 단계와 기술 상세를 확인해 주세요."
+                        meta = (
+                            f"프로필 {status['profile_id']} · {status.get('elapsed_seconds', 0):.1f}초 · "
+                            f"Judge {judge.get('total', 'N/A')} / {judge.get('verdict', 'N/A')} · {_local_time_text()}"
+                        )
+                        st.session_state.voc_chat_history.append({"role": "assistant", "content": answer or "결과 없음", "meta": meta, "status": status})
+                        st.session_state.voc_pending = None
+                        _clear_voc_live_caches()
+                        st.rerun()
+                    time.sleep(1)
                     st.rerun()
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error("VOC 요청 상태를 확인할 수 없습니다.")
+                else:
+                    st.error("VOC 요청 상태를 확인할 수 없습니다.")
+            if server_down:
+                with st.container(key="voc_chat_server_down_notice", border=True):
+                    st.markdown(
+                        "<div class='ai-server-status-title'>⚠ VOC 채팅 서버 중단</div>"
+                        f"<div class='ai-server-status-message'>{html.escape(str(st.session_state.get('voc_chat_server_down_message') or 'VOC 채팅 서버가 중단되어 답변을 받을 수 없습니다. 서버를 다시 시작해 주세요.'))}</div>",
+                        unsafe_allow_html=True,
+                    )
+                    if st.button(
+                        "VOC 채팅 서버 재접속",
+                        key="voc_chat_reconnect",
+                        type="primary",
+                        width="stretch",
+                    ):
+                        with st.spinner("VOC 채팅 서버를 다시 시작하고 연결 상태를 확인하고 있습니다..."):
+                            reconnect_result = reconnect_voc_chat_server(VOC_API)
+                        if reconnect_result.get("ok"):
+                            st.session_state.voc_chat_server_down = False
+                            st.session_state.pop("voc_chat_server_down_message", None)
+                            st.session_state.voc_chat_server_recovered = _local_time_text()
+                            st.session_state.voc_pending = None
+                            _voc_chat_server_health.clear()
+                            st.rerun()
+                        else:
+                            st.error(reconnect_result.get("error", "VOC 채팅 서버 재접속에 실패했습니다."))
+            elif st.session_state.get("voc_chat_server_recovered"):
+                with st.container(key="voc_chat_server_recovered_notice", border=True):
+                    st.markdown(
+                        "<div class='ai-server-status-title'>✓ VOC 채팅 서버 재접속 완료</div>"
+                        "<div class='ai-server-status-message'>이제 새로운 VOC 질문을 입력할 수 있습니다.</div>",
+                        unsafe_allow_html=True,
+                    )
 
-    question = st.chat_input(
-        "VOC 관련 단발 질문을 입력하세요",
-        key="voc_chat_input",
-        disabled=bool(pending) or not api_confirmed,
-    )
+        question = st.chat_input(
+            "VOC 관련 단발 질문을 입력하세요",
+            key="voc_chat_input",
+            disabled=bool(pending) or not api_confirmed or server_down,
+        )
     if question:
         st.session_state.voc_chat_history.append({
             "role": "user", "content": question, "meta": f"사용자 · {_local_time_text()}"
