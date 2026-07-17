@@ -6,6 +6,7 @@ from pathlib import Path
 
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 
+from allstar.voc.api.progress_metrics import VocProgressMetricsCollector
 from allstar.voc.api.testcase_metrics import VocTestcaseReportCollector
 
 
@@ -89,3 +90,5 @@ def restore_last_activity_from_logs(conversation_dir: Path) -> dict[str, float]:
 # 계속 실행되는 VOC API가 공유 정식 보고서를 읽어 테스트케이스 지표를 제공한다.
 voc_testcase_report_collector = VocTestcaseReportCollector()
 REGISTRY.register(voc_testcase_report_collector)
+voc_progress_metrics_collector = VocProgressMetricsCollector()
+REGISTRY.register(voc_progress_metrics_collector)

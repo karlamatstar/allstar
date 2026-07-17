@@ -255,13 +255,28 @@ class VOCGRPCRuntime:
         intent["retry_used"] = retry_used
         intent["retrieval_attempts"] = 2 if retry_used else 1
 
+        final_trace = sres.trace or ""
+        if not sres.ok and "Retriever:count=0" in final_trace:
+            no_data_reason = (
+                "retry_exhausted" if retry_used
+                else "empty_filter" if not combined_filters
+                else "no_match"
+            )
+            set_stage(
+                progress_run_id or "",
+                progress_case_id or "",
+                2,
+                "done",
+                f"검색 결과 0건 · 원인: {no_data_reason}",
+            )
+
         total_elapsed = time.perf_counter() - pipeline_started
         print(f"[파이프라인] 전체 분석 완료 ({total_elapsed:.2f}초)", flush=True)
         trace_parts = [f"Timing:Interpreter={interpreter_elapsed:.2f}s"]
         if retry_used:
             trace_parts.append(first_trace.replace("Retriever:count", "Retriever:first_count"))
             trace_parts.append(f"Retriever:retry_filters={','.join(retry_filters)}")
-        trace_parts.append(sres.trace or "")
+        trace_parts.append(final_trace)
         trace_parts.append(f"Timing:TotalPipeline={total_elapsed:.2f}s")
         stage_trace = "; ".join(part.strip("; ") for part in trace_parts if part)
         return {

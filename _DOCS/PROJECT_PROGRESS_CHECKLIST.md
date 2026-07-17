@@ -265,11 +265,11 @@
 - [x] VOC QA·A~D Grafana 9개 패널을 테스트케이스 전용 지표로 교체
 - [x] Grafana 4개 기본 조회 범위를 AI 30분·K6 1시간·VOC 챗봇 30분·VOC QA 24시간으로 설정하고 화면 갱신을 5초로 통일
 - [x] Prometheus Docker 영구 볼륨 적용과 재시작 후 시계열 보존 검증
-- [ ] 에이전트별 처리시간·오류율 표시
+- [x] 에이전트별 처리시간·오류율 표시
 - [x] VOC 실시간·테스트케이스 Judge 판정 분포 표시
-- [ ] 검색 결과 0건·VOC API 실패 원인 세부 분포 표시
+- [x] 검색 결과 0건·VOC API 실패 원인 세부 분포 표시
 - [x] A~D 요청 수·성공률·지연시간 비교
-- [ ] 통합 Streamlit 안에서 핵심 운영 상태 요약 제공
+- [x] 통합 Streamlit 안에서 핵심 운영 상태 요약 제공
 - [ ] AWS 배포 전 모니터링 보존 기간·권한·알림 정책 검토
 
 기준 문서: `INTEGRATED_GRAFANA_DASHBOARD_REQUIREMENTS.md`

@@ -2,20 +2,155 @@
   "title": "VOC QA A~D 테스트케이스 비교",
   "uid": "voc-qa-abcd",
   "schemaVersion": 39,
-  "version": 5,
+  "version": 6,
   "refresh": "5s",
   "time": {"from": "now-24h", "to": "now"},
   "tags": ["voc", "qa", "abcd", "testcase"],
   "templating": {"list": []},
   "panels": [
-    {"id": 1, "title": "A~D 최신 평균 점수", "type": "bargauge", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 70}, {"color": "yellow", "value": 80}, {"color": "green", "value": 90}]}}, "overrides": []}, "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}, "targets": [{"expr": "voc_testcase_latest_average_score", "legendFormat": "프로필 {{profile}}", "instant": true}]},
-    {"id": 2, "title": "PASS·REVIEW·FAIL·N/A 분포", "type": "bargauge", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []}, "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}, "targets": [{"expr": "voc_testcase_latest_case_results", "legendFormat": "{{profile}} · {{result}}", "instant": true}]},
-    {"id": 3, "title": "A~D 평균 점수 변화", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "voc_testcase_latest_average_score", "legendFormat": "프로필 {{profile}}"}]},
-    {"id": 4, "title": "프로필별 전체·평균 처리시간", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "voc_testcase_latest_duration_seconds", "legendFormat": "{{profile}} · 전체"}, {"expr": "voc_testcase_latest_case_average_duration_seconds", "legendFormat": "{{profile}} · 케이스 평균"}]},
-    {"id": 5, "title": "평가 항목별 평균 달성률", "type": "bargauge", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []}, "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}, "targets": [{"expr": "voc_testcase_latest_criterion_achievement_percent", "legendFormat": "{{profile}} · {{criterion}}", "instant": true}]},
-    {"id": 6, "title": "테스트케이스별 최신 점수", "type": "bargauge", "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []}, "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true}, "targets": [{"expr": "voc_testcase_latest_case_score", "legendFormat": "{{profile}} · {{case_id}} · {{result}}", "instant": true}]},
-    {"id": 7, "title": "테스트케이스별 처리시간", "type": "timeseries", "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "voc_testcase_latest_case_duration_seconds", "legendFormat": "{{profile}} · {{case_id}}"}]},
-    {"id": 8, "title": "최신 보고서 저장 케이스 수", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 12, "y": 24}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []}, "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}, "targets": [{"expr": "voc_testcase_latest_cases_total", "legendFormat": "프로필 {{profile}}", "instant": true}]},
-    {"id": 9, "title": "마지막 보고서 갱신 후 경과시간", "type": "stat", "gridPos": {"h": 8, "w": 6, "x": 18, "y": 24}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []}, "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}, "targets": [{"expr": "(time() - voc_testcase_last_report_timestamp_seconds) and (voc_testcase_last_report_timestamp_seconds > 0)", "legendFormat": "프로필 {{profile}}", "instant": true}]}
+    {
+      "id": 1,
+      "title": "A~D 최신 평균 점수",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "orange", "value": 70}, {"color": "yellow", "value": 80}, {"color": "green", "value": 90}]}}, "overrides": []},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "targets": [{"expr": "voc_testcase_latest_average_score", "legendFormat": "프로필 {{profile}}", "instant": true}]
+    },
+    {
+      "id": 2,
+      "title": "PASS·REVIEW·FAIL·N/A 분포",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "targets": [{"expr": "voc_testcase_latest_case_results", "legendFormat": "{{profile}} · {{result}}", "instant": true}]
+    },
+    {
+      "id": 3,
+      "title": "A~D 평균 점수 변화",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "voc_testcase_latest_average_score", "legendFormat": "프로필 {{profile}}"}]
+    },
+    {
+      "id": 4,
+      "title": "프로필별 전체·평균 처리시간",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [
+        {"expr": "voc_testcase_latest_duration_seconds", "legendFormat": "{{profile}} · 전체"},
+        {"expr": "voc_testcase_latest_case_average_duration_seconds", "legendFormat": "{{profile}} · 케이스 평균"}
+      ]
+    },
+    {
+      "id": 5,
+      "title": "평가 항목별 평균 달성률",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "targets": [{"expr": "voc_testcase_latest_criterion_achievement_percent", "legendFormat": "{{profile}} · {{criterion}}", "instant": true}]
+    },
+    {
+      "id": 6,
+      "title": "테스트케이스별 최신 점수",
+      "type": "bargauge",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"orientation": "horizontal", "displayMode": "gradient", "showUnfilled": true},
+      "targets": [{"expr": "voc_testcase_latest_case_score", "legendFormat": "{{profile}} · {{case_id}} · {{result}}", "instant": true}]
+    },
+    {
+      "id": 7,
+      "title": "테스트케이스별 처리시간",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "voc_testcase_latest_case_duration_seconds", "legendFormat": "{{profile}} · {{case_id}}"}]
+    },
+    {
+      "id": 8,
+      "title": "최신 보고서 저장 케이스 수",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"colorMode": "value", "graphMode": "none", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{"expr": "voc_testcase_latest_cases_total", "legendFormat": "프로필 {{profile}}", "instant": true}]
+    },
+    {
+      "id": 9,
+      "title": "마지막 보고서 갱신 후 경과시간",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{"expr": "(time() - voc_testcase_last_report_timestamp_seconds) and (voc_testcase_last_report_timestamp_seconds > 0)", "legendFormat": "프로필 {{profile}}", "instant": true}]
+    },
+    {
+      "id": 10,
+      "title": "A~D 7단계 누적 평균 처리시간",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_stage_duration_seconds_sum{mode=\"batch\"}) by (profile, stage) / clamp_min(sum(voc_stage_duration_seconds_count{mode=\"batch\"}) by (profile, stage), 1)", "legendFormat": "{{profile}} · {{stage}}", "instant": true}]
+    },
+    {
+      "id": 11,
+      "title": "A~D 7단계 누적 p95 처리시간",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 32},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(voc_stage_duration_seconds_bucket{mode=\"batch\"}) by (le, profile, stage))", "legendFormat": "{{profile}} · {{stage}} p95", "instant": true}]
+    },
+    {
+      "id": 12,
+      "title": "A~D 단계별 누적 오류율",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 41},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "color": {"mode": "thresholds"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_stage_runs_total{mode=\"batch\",status=\"failed\"}) by (profile, stage) / clamp_min(sum(voc_stage_runs_total{mode=\"batch\",status=~\"done|failed\"}) by (profile, stage), 1)", "legendFormat": "{{profile}} · {{stage}}", "instant": true}]
+    },
+    {
+      "id": 13,
+      "title": "A~D 검색 결과 분포",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 41},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_retrieval_results_total{mode=\"batch\"}) by (profile, result, reason)", "legendFormat": "{{profile}} · {{result}} · {{reason}}", "instant": true}]
+    },
+    {
+      "id": 14,
+      "title": "A~D 검색 0건·검색 실패 원인",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 50},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_retrieval_results_total{mode=\"batch\",result=~\"no_data|error\"}) by (profile, reason)", "legendFormat": "{{profile}} · {{reason}}", "instant": true}]
+    },
+    {
+      "id": 15,
+      "title": "A~D 외부 API·파이프라인 실패 원인",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 50},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_pipeline_failures_total{mode=\"batch\"}) by (profile, provider, stage, reason)", "legendFormat": "{{profile}} · {{provider}} · {{stage}} · {{reason}}", "instant": true}]
+    }
   ]
 }

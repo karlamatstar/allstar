@@ -23,13 +23,13 @@ AI_PROVISIONED_DASHBOARD = (
 )
 
 
-def test_voc_qa_dashboard_uses_testcase_metrics_only():
+def test_voc_qa_dashboard_uses_testcase_and_progress_metrics_only():
     source = json.loads(SOURCE_DASHBOARD.read_text(encoding="utf-8"))
     provisioned = json.loads(PROVISIONED_DASHBOARD.read_text(encoding="utf-8"))
 
     assert source["uid"] == provisioned["uid"] == "voc-qa-abcd"
-    assert source["version"] == provisioned["version"] == 5
-    assert len(source["panels"]) == len(provisioned["panels"]) == 9
+    assert source["version"] == provisioned["version"] == 6
+    assert len(source["panels"]) == len(provisioned["panels"]) == 15
 
     expressions = [
         target["expr"]
@@ -38,7 +38,13 @@ def test_voc_qa_dashboard_uses_testcase_metrics_only():
     ]
     assert expressions
     assert all("voc_chat_" not in expression and "voc_judge_total" not in expression for expression in expressions)
-    assert all("voc_testcase_" in expression for expression in expressions)
+    allowed_metrics = (
+        "voc_testcase_",
+        "voc_stage_",
+        "voc_retrieval_results_total",
+        "voc_pipeline_failures_total",
+    )
+    assert all(any(metric in expression for metric in allowed_metrics) for expression in expressions)
 
 
 def test_prometheus_uses_persistent_docker_volume():
@@ -53,8 +59,8 @@ def test_voc_live_dashboard_separates_activity_judge_status_and_verdict():
     provisioned = json.loads(LIVE_PROVISIONED_DASHBOARD.read_text(encoding="utf-8"))
 
     assert source == provisioned
-    assert source["version"] == 4
-    assert len(source["panels"]) == 9
+    assert source["version"] == 5
+    assert len(source["panels"]) == 15
     expressions = "\n".join(
         target["expr"] for panel in source["panels"] for target in panel.get("targets", [])
     )
@@ -91,8 +97,8 @@ def test_grafana_dashboards_use_expected_default_time_ranges_and_refresh():
     expected = (
         (AI_SOURCE_DASHBOARD, AI_PROVISIONED_DASHBOARD, "now-30m", 10),
         (K6_SOURCE_DASHBOARD, K6_PROVISIONED_DASHBOARD, "now-1h", 3),
-        (LIVE_SOURCE_DASHBOARD, LIVE_PROVISIONED_DASHBOARD, "now-30m", 4),
-        (SOURCE_DASHBOARD, PROVISIONED_DASHBOARD, "now-24h", 5),
+        (LIVE_SOURCE_DASHBOARD, LIVE_PROVISIONED_DASHBOARD, "now-30m", 5),
+        (SOURCE_DASHBOARD, PROVISIONED_DASHBOARD, "now-24h", 6),
     )
 
     for source_path, provisioned_path, expected_from, expected_version in expected:

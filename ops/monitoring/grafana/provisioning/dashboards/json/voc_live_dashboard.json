@@ -2,7 +2,7 @@
   "title": "VOC 챗봇 실시간 운영 모니터링",
   "uid": "voc-live-operations",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "5s",
   "time": {"from": "now-30m", "to": "now"},
   "tags": ["voc", "live", "operations"],
@@ -90,6 +90,60 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
       "targets": [{"expr": "histogram_quantile(0.95, sum(rate(voc_judge_duration_seconds_bucket[30m])) by (le, profile))", "legendFormat": "프로필 {{profile}} p95"}]
+    },
+    {
+      "id": 10,
+      "title": "7단계 누적 평균 처리시간",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 35},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_stage_duration_seconds_sum{mode=\"live\"}) by (stage) / clamp_min(sum(voc_stage_duration_seconds_count{mode=\"live\"}) by (stage), 1)", "legendFormat": "{{stage}}", "instant": true}]
+    },
+    {
+      "id": 11,
+      "title": "7단계 누적 p95 처리시간",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 35},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(voc_stage_duration_seconds_bucket{mode=\"live\"}) by (le, stage))", "legendFormat": "{{stage}} p95", "instant": true}]
+    },
+    {
+      "id": 12,
+      "title": "7단계 누적 오류율",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 44},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "color": {"mode": "thresholds"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_stage_runs_total{mode=\"live\",status=\"failed\"}) by (stage) / clamp_min(sum(voc_stage_runs_total{mode=\"live\",status=~\"done|failed\"}) by (stage), 1)", "legendFormat": "{{stage}}", "instant": true}]
+    },
+    {
+      "id": 13,
+      "title": "검색 결과 분포",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 44},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_retrieval_results_total{mode=\"live\"}) by (result)", "legendFormat": "{{result}}", "instant": true}]
+    },
+    {
+      "id": 14,
+      "title": "검색 0건·검색 실패 원인",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 53},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_retrieval_results_total{mode=\"live\",result=~\"no_data|error\"}) by (reason)", "legendFormat": "{{reason}}", "instant": true}]
+    },
+    {
+      "id": 15,
+      "title": "외부 API·파이프라인 실패 원인",
+      "type": "barchart",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 53},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_pipeline_failures_total{mode=\"live\"}) by (provider, stage, reason)", "legendFormat": "{{provider}} · {{stage}} · {{reason}}", "instant": true}]
     }
   ]
 }

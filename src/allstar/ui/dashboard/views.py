@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import socket
 import subprocess
 import sys
 import time
@@ -57,6 +58,7 @@ from allstar.ui.dashboard.k6_load_runner import (
 
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
 VOC_API = os.getenv("VOC_API_URL", "http://localhost:8100")
+PROMETHEUS = os.getenv("PROMETHEUS_URL", "http://localhost:9090").rstrip("/")
 GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000").rstrip("/")
 TIMEOUT = httpx.Timeout(190.0, connect=5.0)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
@@ -1358,8 +1360,7 @@ def _render_voc_chat_conversation() -> None:
         "voc_chat_api_confirm",
         "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
     )
-    _render_profile_cards(
-        list(profiles),
+    _render_profile_cards(list(profiles),
         selected,
         bool(pending) or server_down,
         "voc_chat_profile",
@@ -1809,8 +1810,122 @@ def render_k6_load_test() -> None:
     _render_k6_load_test_fragment()
 
 
+@st.cache_data(ttl=5, show_spinner=False)
+def _monitoring_service_status(
+    portfolio_api: str,
+    voc_api: str,
+    prometheus_url: str,
+    grafana_url: str,
+) -> dict[str, Any]:
+    """외부 AI 호출 없이 핵심 HTTP·TCP 서비스의 현재 상태와 응답시간을 확인한다."""
+    rows: list[dict[str, Any]] = []
+
+    def http_probe(name: str, url: str) -> None:
+        started = time.perf_counter()
+        try:
+            with httpx.Client(timeout=httpx.Timeout(1.5, connect=0.6)) as client:
+                response = client.get(url)
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            ok = response.status_code == 200
+            rows.append({
+                "서비스": name,
+                "상태": "정상" if ok else "오류",
+                "응답시간(ms)": elapsed,
+                "확인 내용": f"HTTP {response.status_code}",
+                "ok": ok,
+            })
+        except Exception as error:
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            rows.append({
+                "서비스": name,
+                "상태": "중단",
+                "응답시간(ms)": elapsed,
+                "확인 내용": str(error),
+                "ok": False,
+            })
+
+    def tcp_probe(name: str, port: int) -> None:
+        started = time.perf_counter()
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+                pass
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            rows.append({
+                "서비스": name,
+                "상태": "정상",
+                "응답시간(ms)": elapsed,
+                "확인 내용": f"TCP {port} 연결 성공",
+                "ok": True,
+            })
+        except OSError as error:
+            elapsed = round((time.perf_counter() - started) * 1000, 1)
+            rows.append({
+                "서비스": name,
+                "상태": "중단",
+                "응답시간(ms)": elapsed,
+                "확인 내용": str(error),
+                "ok": False,
+            })
+
+    http_probe("AI 에이전트 API", f"{portfolio_api.rstrip('/')}/health")
+    http_probe("VOC API", f"{voc_api.rstrip('/')}/health")
+    for name, port in (
+        ("질문 의도 분석(Interpreter)", 6001),
+        ("관련 의견 검색(Retriever)", 6002),
+        ("내용 요약(Summarizer)", 6003),
+        ("초기 품질 평가(Evaluator)", 6004),
+        ("결과 검토(Critic)", 6005),
+        ("최종 답변 개선(Improver)", 6006),
+    ):
+        tcp_probe(name, port)
+    http_probe("Prometheus", f"{prometheus_url}/-/healthy")
+    http_probe("Grafana", f"{grafana_url}/api/health")
+
+    healthy = sum(bool(row["ok"]) for row in rows)
+    return {
+        "checked_at": _local_time_text(),
+        "healthy": healthy,
+        "total": len(rows),
+        "rows": rows,
+    }
+
+
+@st.fragment(run_every="5s")
+def _render_monitoring_status_summary() -> None:
+    heading = st.columns([5, 1])
+    with heading[0]:
+        st.markdown("### 핵심 서버 운영 상태")
+        st.caption("외부 AI를 호출하지 않고 Health·TCP 연결을 5초마다 확인합니다.")
+    with heading[1]:
+        if st.button("상태 새로고침", key="refresh_monitoring_services", width="stretch"):
+            _monitoring_service_status.clear()
+            st.rerun(scope="fragment")
+
+    status = _monitoring_service_status(PORTFOLIO_API, VOC_API, PROMETHEUS, GRAFANA)
+    healthy = int(status["healthy"])
+    total = int(status["total"])
+    summary_columns = st.columns(3)
+    summary_columns[0].metric("정상 서비스", f"{healthy} / {total}")
+    summary_columns[1].metric("중단·오류", total - healthy)
+    summary_columns[2].metric("마지막 확인", status["checked_at"])
+
+    cards = []
+    for row in status["rows"]:
+        state_class = "ready" if row["ok"] else "offline"
+        cards.append(
+            f"<div class='k6-env-item k6-env-{state_class}'><b><span></span>{html.escape(row['서비스'])}</b>"
+            f"<strong>{html.escape(row['상태'])}</strong><small>{row['응답시간(ms)']:.1f}ms</small></div>"
+        )
+    st.markdown("<div class='k6-env-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+    with st.expander("서비스별 확인 내용", expanded=False):
+        detail = pd.DataFrame(status["rows"]).drop(columns=["ok"], errors="ignore")
+        _render_dataframe(detail, height=410)
+
+
 def render_monitoring() -> None:
     _section("모니터링", "상위 모니터링 탭 아래에서 Grafana 화면 4개를 바로 확인합니다.")
+    _render_monitoring_status_summary()
     grafana_ready = bool(_get_json(f"{GRAFANA}/api/health"))
     dashboards = [
         ("AI 에이전트 실시간 운영", "ai-agent-quality"),
