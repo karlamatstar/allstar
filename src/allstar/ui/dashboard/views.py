@@ -744,7 +744,7 @@ def _render_ai_data_tab(kind: str, status: dict[str, Any]) -> None:
         _render_score_breakdown(live_df, model_column="model", key="ai_live_breakdown")
     elif kind == "detail":
         _render_ai_report_status(status, "detail")
-        _render_quality_detail(live_df, key="ai_live_detail")
+        _render_quality_detail(live_df, key="ai_live_detail", newest_first=True)
 
 
 def _render_ai_data_tab_with_refresh(kind: str, initially_active: bool) -> None:
@@ -2110,7 +2110,12 @@ def _render_score_breakdown(
             st.markdown(f"<div class='quality-score-help'>{descriptions}</div>", unsafe_allow_html=True)
 
 
-def _render_quality_detail(df: pd.DataFrame | None, key: str = "quality_detail") -> None:
+def _render_quality_detail(
+    df: pd.DataFrame | None,
+    key: str = "quality_detail",
+    *,
+    newest_first: bool = False,
+) -> None:
     if df is None or df.empty:
         st.info("표시할 상세 결과가 없습니다.")
         return
@@ -2120,6 +2125,16 @@ def _render_quality_detail(df: pd.DataFrame | None, key: str = "quality_detail")
         selected = st.selectbox("판정 필터", decisions, key=f"{key}_decision")
         if selected != "전체":
             view = view[view["overall_decision"] == selected]
+    if newest_first and "timestamp" in view:
+        view = view.assign(
+            _sort_time=pd.to_datetime(view["timestamp"], errors="coerce", utc=True)
+        ).sort_values("_sort_time", ascending=False, na_position="last")
+        view = view.drop(columns=["_sort_time"])
+    technical_columns = ["fault_type", "http_status", "source_case_id", "err_detail", "error_detail"]
+    trailing_columns = [column for column in technical_columns if column in view.columns]
+    if trailing_columns:
+        primary_columns = [column for column in view.columns if column not in trailing_columns]
+        view = view[primary_columns + trailing_columns]
     _render_dataframe(view, height=520)
 
 

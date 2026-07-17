@@ -82,9 +82,13 @@ def test_ai_and_voc_chat_servers_share_passive_down_and_reconnect_ui():
 
 
 def test_live_and_batch_details_keep_the_same_renderer_with_distinct_keys():
-    assert '_render_quality_detail(live_df, key="ai_live_detail")' in VIEWS
+    assert '_render_quality_detail(live_df, key="ai_live_detail", newest_first=True)' in VIEWS
     assert '_render_quality_detail(df, key="ai_batch_detail")' in VIEWS
     assert 'key=f"{key}_decision"' in VIEWS
+    assert 'pd.to_datetime(view["timestamp"], errors="coerce", utc=True)' in VIEWS
+    assert '.sort_values("_sort_time", ascending=False, na_position="last")' in VIEWS
+    assert 'technical_columns = ["fault_type", "http_status", "source_case_id", "err_detail", "error_detail"]' in VIEWS
+    assert "view = view[primary_columns + trailing_columns]" in VIEWS
 
 
 def test_followup_document_records_all_confirmed_behaviors():
