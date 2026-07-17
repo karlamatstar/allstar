@@ -2,6 +2,7 @@
 
 > 구현일: 2026-07-17
 > 대상: `RUN/start_servers.bat`, `tools/server_control/`
+> 상태: **정상·강제 종료 정리, Docker 유지·포함 종료, Streamlit 잔류 정리와 단일 실행 연동 구현·검증 완료**
 
 ## 목적
 
