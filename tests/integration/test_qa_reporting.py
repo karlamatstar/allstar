@@ -44,11 +44,12 @@ def test_logs_accumulate_while_latest_report_is_overwritten(monkeypatch, tmp_pat
     assert [event["event"] for event in events] == ["started", "finished", "started", "finished"]
 
 
-def test_k6_summary_metrics_are_written_to_report(monkeypatch, tmp_path):
+def test_grafana_only_k6_keeps_metrics_and_logs_without_user_report(monkeypatch, tmp_path):
     configure_output_roots(monkeypatch, tmp_path)
     session = qa_reporting.QAReportSession(
         "ai_load", "일반 부하 시험", ["k6", "run", "load_test.js"],
         settings={"최대 가상 인원(VU)": 20, "실행 시간(초)": 60},
+        write_summary_report=False,
     )
     session.start()
     assert session.command_for_execution()[2].startswith("--summary-export=")
@@ -65,15 +66,23 @@ def test_k6_summary_metrics_are_written_to_report(monkeypatch, tmp_path):
     result = session.finish("completed", 0)
 
     assert result["metrics"]["request_count"] == 120
-    report = session.report_path.read_text(encoding="utf-8")
-    assert "요청 실패율: 2.500%" in report
-    assert "p95 응답시간: 240.800ms" in report
+    assert result["report"] is None
+    assert session.log_path.exists()
+    assert session.k6_summary_path.exists()
+    assert not session.report_path.exists()
+    assert not session.latest_report_path.exists()
+    assert not session.manifest_path.exists()
+    assert not session.latest_manifest_path.exists()
+    events = [json.loads(line) for line in qa_reporting.QA_EVENT_LOG.read_text(encoding="utf-8").splitlines()]
+    assert events[-1]["metrics"]["response_time_p95_ms"] == 240.8
+    assert events[-1]["report"] is None
 
 
 def test_k6_v2_summary_metrics_are_parsed(monkeypatch, tmp_path):
     configure_output_roots(monkeypatch, tmp_path)
     session = qa_reporting.QAReportSession(
-        "ai_random", "무작위 요청 시험", ["k6", "run", "random_test.js"]
+        "ai_random", "무작위 요청 시험", ["k6", "run", "random_test.js"],
+        write_summary_report=False,
     )
     session.start()
     session.k6_summary_path.write_text(json.dumps({
@@ -91,6 +100,19 @@ def test_k6_v2_summary_metrics_are_parsed(monkeypatch, tmp_path):
     assert result["metrics"]["failure_rate"] == 0
     assert result["metrics"]["response_time_p95_ms"] == 1526.9
     assert result["metrics"]["checks_passed"] == 1558
+
+
+def test_composite_k6_wrappers_keep_summary_reports(monkeypatch, tmp_path):
+    configure_output_roots(monkeypatch, tmp_path)
+
+    for test_id in ("ai_validation", "ai_api_performance"):
+        session = qa_reporting.QAReportSession(test_id, "종합 시험", ["python", "wrapper.py"])
+        session.start()
+        result = session.finish("completed", 0)
+
+        assert result["report"] is not None
+        assert session.report_path.exists()
+        assert session.latest_manifest_path.exists()
 
 
 def test_latest_manifest_points_to_accumulated_source_log(monkeypatch, tmp_path):

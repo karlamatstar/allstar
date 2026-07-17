@@ -18,6 +18,9 @@ def test_parenthesized_english_is_moved_to_second_tab_line():
     assert qa_control.two_line_tab_label(
         "장애·기능 검증 시험 (Validation Test)"
     ) == "장애·기능 검증 시험\n(Validation Test)"
+    assert qa_control.two_line_tab_label(
+        "테스트케이스 품질 시험 (Test Case Test)"
+    ) == "테스트케이스 품질 시험\n(Test Case Test)"
 
 
 def test_selected_and_unselected_tabs_use_the_same_padding():
@@ -102,6 +105,21 @@ def test_every_k6_test_description_names_k6():
         assert "K6" in descriptions_by_id[test_id]
 
 
+def test_direct_k6_tests_are_grafana_only_and_composite_reports_are_preserved():
+    source = QA_CONTROL_PATH.read_text(encoding="utf-8")
+
+    assert qa_control.GRAFANA_ONLY_K6_TEST_IDS == {
+        "ai_smoke", "ai_load", "ai_random", "ai_stress", "ai_spike",
+    }
+    assert "ai_validation" not in qa_control.GRAFANA_ONLY_K6_TEST_IDS
+    assert "ai_api_performance" not in qa_control.GRAFANA_ONLY_K6_TEST_IDS
+    assert "write_summary_report=self.test_id not in GRAFANA_ONLY_K6_TEST_IDS" in source
+    for title, description in qa_control.TEST_DESCRIPTIONS.items():
+        if qa_control.TEST_IDS[title] in qa_control.GRAFANA_ONLY_K6_TEST_IDS:
+            assert "Grafana" in description
+            assert "별도 사용자용 보고서는 생성하지 않습니다" in description
+
+
 def test_find_k6_prefers_run_folder_then_system_path(tmp_path, monkeypatch):
     monkeypatch.setattr(qa_control, "ROOT", tmp_path)
     run_dir = tmp_path / "RUN"
@@ -147,12 +165,28 @@ def test_voc_profile_gui_uses_all_registered_cases():
     assert "대표 사례 2건만 실행합니다" not in source
 
 
+def test_ai_testcase_quality_test_is_last_ai_tab_and_uses_all_cases():
+    title, command, confirm = qa_control.AI_TESTS[-1]
+    source = QA_CONTROL_PATH.read_text(encoding="utf-8")
+
+    assert title == "테스트케이스 품질 시험 (Test Case Test)"
+    assert command[-1] == "allstar.ai_agent.evaluation.quality_pipeline"
+    assert confirm is True
+    assert qa_control.TEST_IDS[title] == "ai_testcase"
+    assert qa_control.load_ai_case_count() == 6
+    assert "등록된 전체 테스트케이스: {total_cases}건" in source
+    assert "케이스당 최대 3회" in source
+    assert '"전체 테스트케이스": total_cases' in source
+
+
 def test_global_execution_lock_updates_all_tab_buttons():
     app = qa_control.QAControl()
     app.withdraw()
     app.update_idletasks()
     try:
-        assert len(app.test_tabs) == 14
+        assert len(app.test_tabs) == 15
+        assert app.test_tabs[8].title_text == "테스트케이스 품질 시험 (Test Case Test)"
+        assert app.minsize() == (1200, 650)
         assert all(tab.start_button.cget("state") == "normal" for tab in app.test_tabs)
         assert all(tab.stop_button.cget("state") == "disabled" for tab in app.test_tabs)
 

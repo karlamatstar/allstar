@@ -50,9 +50,11 @@
    - VOC 챗봇 보고서의 한눈에 보는 품질 현황, A~D 그래프, 접이식 확인 목록과 최신순 채팅 목록 기준
 20. `QA_CONTROL_UI.md`
    - 품질검사 관리의 시험 탭, 실행 잠금, 중지, K6와 실제 API 확인 절차
-21. `SERVER_CONTROL_LIFECYCLE.md`
+21. `QA_AI_TESTCASE_TAB_AND_K6_REPORT_POLICY.md`
+   - QA 컨트롤러 AI 테스트케이스 탭 추가, 직접 부하 K6 5종과 기존 장애·성능 정식 보고서의 보존 범위
+22. `SERVER_CONTROL_LIFECYCLE.md`
    - 서버 관리의 전체 시작·종료, Docker 포함 종료, Streamlit 잔류 프로세스 정리 기준
-22. `REMAINING_WORK_PLAN.md`
+23. `REMAINING_WORK_PLAN.md`
    - 완료 기능을 제외한 실제 미완료·재검증·AWS 검토 항목의 우선순위
 
 ## 문서 상태 해석 원칙
@@ -93,6 +95,6 @@
 - 컨트롤러 단일 실행, 보고서 그래프·VOC 최신 보고서, Grafana 전체화면 후속 개선을 커밋 `452cf22`로 `origin/main`에 반영 완료
 - 밀린 문서 상태·이력·남은 작업 정합성 정리를 커밋 `486ec52`로 `origin/main`에 반영 완료
 
-현재 미완료 항목은 테스트케이스 A~D 대표 2건 재검증, QA 실행 목록·필터, 일부 운영 상세 지표, 장시간·다중 사용자 조건, AWS 배포 보안 검토다. 정확한 14개 항목은 `PROJECT_PROGRESS_CHECKLIST.md`를 따른다.
+QA 컨트롤러 AI 테스트케이스 탭과 직접 부하 K6 보고서 범위 분리는 구현·비API 검증을 완료했다. 현재 미완료 항목은 테스트케이스 A~D 대표 2건 재검증, 일부 운영 상세 지표, 장시간·다중 사용자 조건, AWS 배포 보안 검토다. 정확한 항목은 `PROJECT_PROGRESS_CHECKLIST.md`를 따른다.
 
 구현과 문서가 다르면 `PROJECT_DIRECTORY_STRUCTURE.md`와 실제 코드를 우선 함께 수정한다.

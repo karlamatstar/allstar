@@ -124,6 +124,7 @@ class QAReportSession:
     test_name: str
     command: list[str]
     settings: dict[str, Any] = field(default_factory=dict)
+    write_summary_report: bool = True
     run_id: str = field(default_factory=lambda: f"{_now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}")
     started_at: datetime = field(default_factory=_now)
 
@@ -224,21 +225,25 @@ class QAReportSession:
             "sources": [_safe_relative(self.log_path)] + (
                 [_safe_relative(self.k6_summary_path)] if self.k6_summary_path and self.k6_summary_path.exists() else []
             ),
-            "report": _safe_relative(self.report_path),
+            "report": _safe_relative(self.report_path) if self.write_summary_report else None,
         }
-        report = self._render_report(result)
-        _atomic_write(self.report_path, report)
-        _atomic_write(self.latest_report_path, report)
-        manifest = json.dumps(result, ensure_ascii=False, indent=2)
-        _atomic_write(self.manifest_path, manifest)
-        _atomic_write(self.latest_manifest_path, manifest)
+        if self.write_summary_report:
+            report = self._render_report(result)
+            _atomic_write(self.report_path, report)
+            _atomic_write(self.latest_report_path, report)
+            manifest = json.dumps(result, ensure_ascii=False, indent=2)
+            _atomic_write(self.manifest_path, manifest)
+            _atomic_write(self.latest_manifest_path, manifest)
         if record_event:
             _append_event({"event": "finished", **result})
         if append_footer:
-            self.append_output(
+            footer = (
                 f"\n[실행 종료]\n상태: {effective_status}\n종료 코드: {exit_code}\n"
-                f"완료 시각: {result['finished_at']}\n보고서: {result['report']}\n"
+                f"완료 시각: {result['finished_at']}\n"
             )
+            if result["report"]:
+                footer += f"보고서: {result['report']}\n"
+            self.append_output(footer)
         return result
 
     def _render_report(self, result: dict[str, Any]) -> str:

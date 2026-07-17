@@ -26,6 +26,7 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 RUN_LOG = LOG_DIR / "qa_control_runs.jsonl"
 RUN_LOG_LOCK = threading.Lock()
 VOC_TEST_CASES_PATH = ROOT / "src" / "allstar" / "voc" / "evaluation" / "test_cases.json"
+AI_TEST_CASES_PATH = ROOT / "src" / "allstar" / "ai_agent" / "evaluation" / "test_cases.json"
 
 AI_TESTS = [
     ("기본 동작 시험 (Smoke Test)", ["k6", "run", "ops/performance/smoke_test.js"], False),
@@ -36,6 +37,7 @@ AI_TESTS = [
     ("장애·기능 검증 시험 (Validation Test)", [PY, "-u", "tools/scripts/run_validation_tests.py"], True),
     ("서버 연결 성능 종합 시험 (API)", [PY, "-u", "tools/scripts/run_performance_tests.py"], True),
     ("서버 연결 끊김 방어 시험 (API)", [PY, "-u", "tools/scripts/run_api_disconnect_test.py"], True),
+    ("테스트케이스 품질 시험 (Test Case Test)", [PY, "-u", "-m", "allstar.ai_agent.evaluation.quality_pipeline"], True),
 ]
 
 LOAD_SETTINGS = {
@@ -54,6 +56,7 @@ TEST_IDS = {
     "장애·기능 검증 시험 (Validation Test)": "ai_validation",
     "서버 연결 성능 종합 시험 (API)": "ai_api_performance",
     "서버 연결 끊김 방어 시험 (API)": "ai_api_disconnect",
+    "테스트케이스 품질 시험 (Test Case Test)": "ai_testcase",
     "전체 비AI pytest": "voc_non_ai",
     "단위 테스트": "voc_unit",
     **{f"에이전트 교차 테스트 ({profile_id})": f"voc_profile_{profile_id.lower()}" for profile_id in "ABCD"},
@@ -68,28 +71,40 @@ K6_REQUIRED_TEST_IDS = {
     "ai_validation",
     "ai_api_performance",
 }
+GRAFANA_ONLY_K6_TEST_IDS = {
+    "ai_smoke",
+    "ai_load",
+    "ai_random",
+    "ai_stress",
+    "ai_spike",
+}
 K6_INSTALL_URL = "https://grafana.com/docs/k6/latest/set-up/install-k6/"
 
 TEST_DESCRIPTIONS = {
     "기본 동작 시험 (Smoke Test)": (
         "K6 부하 시험 도구로 가상 사용자 1명이 서버 상태와 모의 채팅을 각각 한 번 호출하는 가장 가벼운 시험입니다.\n"
-        "서버가 켜져 있는지, 기본 연결과 HTTP 200 응답이 정상인지 빠르게 확인할 수 있습니다. 시험이 끝나면 결과가 자동 정리됩니다."
+        "서버가 켜져 있는지, 기본 연결과 HTTP 200 응답이 정상인지 빠르게 확인할 수 있습니다. "
+        "결과는 Prometheus로 자동 전송되어 Grafana에서 확인하며 별도 사용자용 보고서는 생성하지 않습니다."
     ),
     "일반 부하 시험 (Load Test)": (
         "K6 부하 시험 도구로 설정한 가상 인원이 일정 시간 동안 모의 채팅 요청을 계속 보내는 일상 부하 시험입니다.\n"
-        "지속적인 요청에서 응답 지연, 실패율, 처리 안정성이 기준을 유지하는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
+        "지속적인 요청에서 응답 지연, 실패율, 처리 안정성이 기준을 유지하는지 확인합니다. "
+        "결과는 Prometheus로 자동 전송되어 Grafana에서 확인하며 별도 사용자용 보고서는 생성하지 않습니다."
     ),
     "무작위 요청 시험 (Random Test)": (
         "K6 부하 시험 도구가 가상 인원 수를 1초마다 1명부터 설정한 최댓값 사이에서 무작위로 바꾸는 변동 부하 시험입니다.\n"
-        "예측하기 어려운 요청 증감에서 서버가 안정적으로 응답하는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
+        "예측하기 어려운 요청 증감에서 서버가 안정적으로 응답하는지 확인합니다. "
+        "결과는 Prometheus로 자동 전송되어 Grafana에서 확인하며 별도 사용자용 보고서는 생성하지 않습니다."
     ),
     "한계 부하 시험 (Stress Test)": (
         "K6 부하 시험 도구로 가상 인원을 단계적으로 늘려 최댓값을 유지한 뒤 다시 낮추는 한계 부하 시험입니다.\n"
-        "서버의 처리 한계, 고부하 구간의 오류, 부하 감소 후 회복 여부를 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
+        "서버의 처리 한계, 고부하 구간의 오류, 부하 감소 후 회복 여부를 확인합니다. "
+        "결과는 Prometheus로 자동 전송되어 Grafana에서 확인하며 별도 사용자용 보고서는 생성하지 않습니다."
     ),
     "순간 급증 시험 (Spike Test)": (
         "K6 부하 시험 도구로 가상 인원을 짧은 시간에 최댓값까지 급격히 올렸다가 다시 낮추는 순간 폭주 시험입니다.\n"
-        "갑작스러운 트래픽 급증을 견디는지와 급증 종료 후 정상 상태로 복구되는지 확인합니다. 시험이 끝나면 결과가 자동 정리됩니다."
+        "갑작스러운 트래픽 급증을 견디는지와 급증 종료 후 정상 상태로 복구되는지 확인합니다. "
+        "결과는 Prometheus로 자동 전송되어 Grafana에서 확인하며 별도 사용자용 보고서는 생성하지 않습니다."
     ),
     "장애·기능 검증 시험 (Validation Test)": (
         "K6 부하 시험 도구로 지연·서버 오류·시간 초과 같은 장애 상황을 재현하고 전체 기능 검사를 함께 수행합니다.\n"
@@ -103,6 +118,10 @@ TEST_DESCRIPTIONS = {
     "서버 연결 끊김 방어 시험 (API)": (
         "외부 연결 실패 상황을 의도적으로 발생시켜 재시도와 안전한 대체 응답이 동작하는지 확인합니다.\n"
         "연결 장애가 발생해도 서버가 중단되지 않고 사용자에게 이해하기 쉬운 안내를 반환하는지 검증합니다. 시험 결과는 자동 정리됩니다."
+    ),
+    "테스트케이스 품질 시험 (Test Case Test)": (
+        "현재 등록된 AI 에이전트 테스트케이스 전체를 규칙 기반 답변과 API 기반 답변으로 각각 실행하고 품질을 비교합니다.\n"
+        "실행 범위와 외부 AI 비용을 확인한 뒤 시작하며, 정상 완료 시 기존 AI 에이전트 테스트케이스 보고서와 그래프가 자동 갱신됩니다."
     ),
 }
 
@@ -144,6 +163,15 @@ def load_voc_case_counts() -> tuple[int, int]:
     except (OSError, KeyError, TypeError, json.JSONDecodeError):
         return 0, 0
     return len(cases), sum(bool(case.get("judge_enabled", False)) for case in cases)
+
+
+def load_ai_case_count() -> int:
+    """현재 등록된 AI 에이전트 테스트케이스 수를 반환한다."""
+    try:
+        cases = json.loads(AI_TEST_CASES_PATH.read_text(encoding="utf-8"))
+    except (OSError, TypeError, json.JSONDecodeError):
+        return 0
+    return len(cases) if isinstance(cases, list) else 0
 
 
 def find_k6() -> str | None:
@@ -285,6 +313,16 @@ class TestTab(tk.Frame):
                     "예상 실제 채팅 요청: 정상 완료 시 총 36건\n"
                     "실제 외부 AI 호출이 포함됩니다. 성능 시험을 실행할까요?"
                 )
+            elif self.test_id == "ai_testcase":
+                total_cases = load_ai_case_count()
+                max_api_calls = total_cases * 3
+                message = (
+                    f"등록된 전체 테스트케이스: {total_cases}건\n"
+                    "실행 방식: 규칙 기반 답변과 API 기반 답변 비교 평가\n"
+                    f"예상 외부 AI 기본 호출: 케이스당 최대 3회, 총 최대 {max_api_calls}회\n"
+                    "API 재시도가 발생하면 실제 호출 수는 더 늘어날 수 있습니다.\n"
+                    "전체 테스트케이스 품질 시험을 실행할까요?"
+                )
             if not messagebox.askyesno("실행 전 확인", message):
                 return
         if self.owner and not self.owner.acquire_execution(self):
@@ -305,6 +343,12 @@ class TestTab(tk.Frame):
                 "단계 사이 안정화": "5초",
                 "최대 실제 채팅 요청": 36,
             })
+        if self.test_id == "ai_testcase":
+            total_cases = load_ai_case_count()
+            report_settings.update({
+                "전체 테스트케이스": total_cases,
+                "예상 외부 AI 기본 호출": f"최대 {total_cases * 3}회",
+            })
         report_command = list(self.command)
         if report_command and report_command[0].lower() == "k6" and k6_bin:
             report_command[0] = k6_bin
@@ -313,6 +357,7 @@ class TestTab(tk.Frame):
             test_name=self.title_text,
             command=report_command,
             settings=report_settings,
+            write_summary_report=self.test_id not in GRAFANA_ONLY_K6_TEST_IDS,
         )
         env.setdefault("K6_PROMETHEUS_RW_SERVER_URL", "http://127.0.0.1:9090/api/v1/write")
         env.setdefault("K6_PROMETHEUS_RW_TREND_STATS", "p(95),p(99),avg,min,max")
@@ -428,7 +473,7 @@ class QAControl(tk.Tk):
         self.active_tab: TestTab | None = None
         self.title("AllStar 품질검사 관리")
         self.geometry("1320x800")
-        self.minsize(1050, 650)
+        self.minsize(1200, 650)
         style = ttk.Style(self)
         style.theme_use("clam")
         style.configure("TNotebook", background="#151923")
