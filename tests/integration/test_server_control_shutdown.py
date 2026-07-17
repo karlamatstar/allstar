@@ -39,16 +39,19 @@ def test_shutdown_stops_streamlit_tree_and_project_docker_services(tmp_path, mon
 
     def fake_run(command, **kwargs):
         commands.append((command, kwargs))
+        if command[0] == "powershell.exe":
+            return Completed("1234")
         return Completed("") if command[0] == "netstat" else Completed()
 
     monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
 
     assert lifecycle.stop_project_services(ROOT, state_path, log_path) is True
     assert commands[0][0] == ["netstat", "-ano", "-p", "tcp"]
-    assert commands[1][0] == ["taskkill", "/PID", "1234", "/T", "/F"]
-    assert commands[2][0] == ["docker", "info", "--format", "{{.ServerVersion}}"]
-    assert commands[3][0] == ["docker", "compose", "stop"]
-    assert commands[3][1]["cwd"] == ROOT
+    assert commands[1][0][0] == "powershell.exe"
+    assert commands[2][0] == ["taskkill", "/PID", "1234", "/T", "/F"]
+    assert commands[3][0] == ["docker", "info", "--format", "{{.ServerVersion}}"]
+    assert commands[4][0] == ["docker", "compose", "stop"]
+    assert commands[4][1]["cwd"] == ROOT
     assert "전체 서버 종료 완료" in log_path.read_text(encoding="utf-8")
 
 
@@ -67,6 +70,10 @@ def test_streamlit_can_be_found_by_port_when_saved_pid_is_missing(tmp_path, monk
             result = Completed()
             result.stdout = "  TCP    127.0.0.1:8501    0.0.0.0:0    LISTENING    4321\n"
             return result
+        if command[0] == "powershell.exe":
+            result = Completed()
+            result.stdout = "4000"
+            return result
         if command[0] == "taskkill":
             killed.append(command)
         return Completed()
@@ -74,7 +81,40 @@ def test_streamlit_can_be_found_by_port_when_saved_pid_is_missing(tmp_path, monk
     monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
 
     assert lifecycle.stop_project_services(ROOT, state_path, log_path) is True
-    assert killed == [["taskkill", "/PID", "4321", "/T", "/F"]]
+    assert killed == [["taskkill", "/PID", "4000", "/T", "/F"]]
+
+
+def test_streamlit_parent_and_child_are_terminated_once(tmp_path, monkeypatch):
+    log_path = tmp_path / "shutdown.log"
+    killed = []
+
+    monkeypatch.setattr(
+        lifecycle,
+        "streamlit_root_pid",
+        lambda pid: 4000 if pid in {4000, 4321} else pid,
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "terminate_process_tree",
+        lambda pid, _path: (killed.append(pid) or True),
+    )
+
+    assert lifecycle.terminate_streamlit_processes({4000, 4321}, log_path) is True
+    assert killed == [4000]
+
+
+def test_streamlit_shutdown_failure_is_not_reported_as_complete(tmp_path, monkeypatch):
+    state_path = tmp_path / "state.json"
+    log_path = tmp_path / "shutdown.log"
+    state_path.write_text(json.dumps({"streamlit_pid": 4321}), encoding="utf-8")
+
+    monkeypatch.setattr(lifecycle, "listening_pids", lambda _port: set())
+    monkeypatch.setattr(lifecycle, "streamlit_root_pid", lambda pid: pid)
+    monkeypatch.setattr(lifecycle, "terminate_process_tree", lambda _pid, _path: False)
+    monkeypatch.setattr(lifecycle, "docker_ready", lambda: False)
+
+    assert lifecycle.stop_project_services(ROOT, state_path, log_path) is False
+    assert "Streamlit 종료 오류 발생" in log_path.read_text(encoding="utf-8")
 
 
 def test_server_control_status_refresh_and_docker_start_are_non_blocking_by_design():
@@ -122,6 +162,7 @@ def test_server_start_rebuilds_images_and_shutdown_keeps_docker_by_default():
 
     assert '["docker", "compose", "up", "-d", "--build", *docker_services]' in source
     assert 'self._docker("up", "-d", "--build", key' in source
+    assert '"--server.headless", "true"' in source
     assert "stop_project_services(ROOT, self.state_path, SHUTDOWN_LOG)" in source
     assert "Docker Desktop은 유지합니다." in source
     assert "stop_project_and_docker(ROOT, self.state_path, SHUTDOWN_LOG)" in source

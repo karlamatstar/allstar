@@ -16,6 +16,7 @@ SRC_ROOT = ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 from allstar.shared.model_profiles import get_profile  # noqa: E402
 from allstar.shared.paths import MANIFEST_ROOT, VOC_LOG_ROOT, VOC_REPORT_ROOT  # noqa: E402
+from allstar.voc.evaluation.progress import finish_progress, initialize_progress  # noqa: E402
 from allstar.voc.evaluation.runtime_support import load_test_cases  # noqa: E402
 
 
@@ -80,12 +81,19 @@ def main() -> int:
         action="append",
         help="실행할 테스트케이스 ID. 생략하면 등록된 전체 케이스를 실행한다.",
     )
+    parser.add_argument("--run-id", help="대시보드 진행 상태와 실행 로그를 연결할 실행 ID")
     args = parser.parse_args()
     case_ids = resolve_case_ids(args.case_id)
+    case_id_set = set(case_ids)
+    selected_cases = [case for case in load_test_cases() if case["case_id"] in case_id_set]
     profile = get_profile(args.profile)
+    run_id = args.run_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    initialize_progress(run_id, profile.profile_id, selected_cases)
     env = os.environ.copy()
     env.update({
         "PYTHONPATH": os.pathsep.join([str(SRC_ROOT), env.get("PYTHONPATH", "")]),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
         "GENERATION_PROVIDER": profile.generation.provider,
         "OPENAI_MODEL": profile.generation.model if profile.generation.provider == "openai" else env.get("OPENAI_MODEL", "gpt-5.6-luna"),
         "A2A_MODEL_POLICY": profile.generation.model if profile.generation.provider == "anthropic" else env.get("A2A_MODEL_POLICY", "claude-sonnet-4-6"),
@@ -100,13 +108,13 @@ def main() -> int:
         "ANTHROPIC_THINKING_JUDGE": profile.judge.thinking,
         "CROSS_VALIDATION_EXPERIMENT": profile.profile_id,
         "ALLSTAR_VOC_PROFILE_SNAPSHOT": json.dumps(profile.snapshot(), ensure_ascii=False),
+        "ALLSTAR_VOC_PROGRESS_RUN_ID": run_id,
     })
     print(f"[{profile.profile_id}] {profile.summary}")
     print(f"생성: {profile.generation.provider}/{profile.generation.model}/{profile.generation.reasoning}")
     print(f"평가: {profile.judge.provider}/{profile.judge.model}/{profile.judge.reasoning}")
     scope = "전체" if not args.case_id else "지정"
     print(f"실행 테스트케이스: {scope} {len(case_ids)}건 ({', '.join(case_ids)})")
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     report_dir = VOC_REPORT_ROOT / "testcase" / profile.profile_id.lower()
     log_dir = VOC_LOG_ROOT / "testcase" / profile.profile_id.lower() / run_id
     env["VOC_JUDGE_LOG_DIR"] = str(log_dir)
@@ -151,6 +159,12 @@ def main() -> int:
     from allstar.voc.evaluation.cross_validation import _update_comparison_report
 
     _update_comparison_report()
+    final_status = "failed" if result.returncode or judge_failures else "completed"
+    finish_progress(
+        run_id,
+        final_status,
+        f"독립 LLM Judge 실패 사례: {', '.join(judge_failures)}" if judge_failures else None,
+    )
     if result.returncode:
         return result.returncode
     if judge_failures:

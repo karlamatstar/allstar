@@ -166,6 +166,48 @@ def terminate_process_tree(pid: int, log_path: Path) -> bool:
     return completed.returncode == 0
 
 
+def streamlit_root_pid(pid: int) -> int:
+    """Streamlit 실행기의 자식 PID가 들어와도 가장 위 실행 PID를 반환한다."""
+    script = (
+        f"$target = {int(pid)}; $root = $target; "
+        "for ($index = 0; $index -lt 5; $index++) { "
+        "$process = Get-CimInstance Win32_Process -Filter \"ProcessId = $target\"; "
+        "if ($null -eq $process) { break }; "
+        "$command = [string]$process.CommandLine; "
+        "if (($command -notmatch '(?i)streamlit') -or "
+        "($command -notmatch '(?i)streamlit_app\\.py')) { break }; "
+        "$root = [int]$process.ProcessId; "
+        "$target = [int]$process.ParentProcessId; "
+        "}; [Console]::Out.Write($root)"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW,
+            timeout=10,
+            check=False,
+        )
+        resolved_pid = int((completed.stdout or "").strip())
+        return resolved_pid if resolved_pid > 4 else pid
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return pid
+
+
+def terminate_streamlit_processes(pids: set[int], log_path: Path) -> bool:
+    """중복된 자식 PID를 상위 Streamlit 실행 PID로 합쳐 프로세스 트리를 종료한다."""
+    root_pids = {streamlit_root_pid(pid) for pid in pids}
+    success = True
+    for root_pid in sorted(root_pids):
+        if not terminate_process_tree(root_pid, log_path):
+            success = False
+    return success
+
+
 def listening_pids(port: int) -> set[int]:
     """Windows netstat에서 지정 포트를 수신 중인 PID를 찾는다."""
     try:
@@ -206,13 +248,15 @@ def stop_project_services(root: Path, state_path: Path, log_path: Path) -> bool:
     streamlit_pids = listening_pids(8501)
     if streamlit_pid:
         streamlit_pids.add(streamlit_pid)
-    for pid in sorted(streamlit_pids):
-        terminate_process_tree(pid, log_path)
+    streamlit_stopped = terminate_streamlit_processes(streamlit_pids, log_path)
 
     if not docker_ready():
         append_shutdown_log(log_path, "Docker Desktop이 이미 꺼져 있어 Docker 서비스 종료를 생략합니다.")
-        append_shutdown_log(log_path, "전체 서버 종료 완료")
-        return True
+        append_shutdown_log(
+            log_path,
+            "전체 서버 종료 완료" if streamlit_stopped else "Streamlit 종료 오류 발생",
+        )
+        return streamlit_stopped
 
     try:
         completed = subprocess.run(
@@ -234,6 +278,12 @@ def stop_project_services(root: Path, state_path: Path, log_path: Path) -> bool:
     output = (completed.stdout or "").strip()
     if output:
         append_shutdown_log(log_path, f"Docker 서비스 종료 결과:\n{output}")
-    success = completed.returncode == 0
-    append_shutdown_log(log_path, "전체 서버 종료 완료" if success else f"Docker 종료 코드: {completed.returncode}")
+    success = streamlit_stopped and completed.returncode == 0
+    if success:
+        message = "전체 서버 종료 완료"
+    elif not streamlit_stopped:
+        message = "Streamlit 종료 오류 발생"
+    else:
+        message = f"Docker 종료 코드: {completed.returncode}"
+    append_shutdown_log(log_path, message)
     return success

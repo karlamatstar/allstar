@@ -15,6 +15,13 @@ from pathlib import Path
 
 from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import VOC_LOG_ROOT
+from allstar.voc.evaluation.progress import (
+    fail_active_stage,
+    finish_case,
+    set_stage,
+    skip_stages,
+    start_case,
+)
 from allstar.voc.evaluation.report_charts import generate_profile_charts
 from allstar.voc.evaluation.judge_prompt import build_judge_prompt, decide_verdict, parse_judge_response
 from allstar.voc.evaluation.runtime_support import REPORTS_DIR, all_agents_running, load_json, pb2_generated
@@ -214,14 +221,16 @@ def make_judge_llm():
     return JudgeLLM(providers, fixed_provider=locked), label
 
 
-async def get_analysis(case: dict) -> tuple[str | None, str]:
+async def get_analysis(case: dict) -> tuple[str | None, str, str]:
     mode = case.get("judge_mode", "live")
     if mode == "static":
-        return case["analysis"], "static"
+        return case["analysis"], "static", ""
     if not pb2_generated():
-        return None, "SKIP: voc_pb2.py 미생성 (voc.proto 컴파일 필요)"
+        note = "SKIP: voc_pb2.py 미생성 (voc.proto 컴파일 필요)"
+        return None, note, note
     if not all_agents_running():
-        return None, "SKIP: 6개 에이전트 서버(6001~6006) 미가동"
+        note = "SKIP: 6개 에이전트 서버(6001~6006) 미가동"
+        return None, note, note
 
     from allstar.voc.evaluation.runtime_support import get_runtime
     # expect_no_data가 아닌(즉 검색이 정상적으로 성공해야 하는) 케이스에서만
@@ -237,6 +246,8 @@ async def get_analysis(case: dict) -> tuple[str | None, str]:
     out = await get_runtime().run_with_question(
         question=case["question"], csv_path=None, timeout=180.0,
         extra_filters=extra_filters,
+        progress_run_id=os.environ.get("ALLSTAR_VOC_PROGRESS_RUN_ID"),
+        progress_case_id=case.get("case_id"),
     )
     elapsed = time.perf_counter() - started
     if not out.get("ok"):
@@ -248,9 +259,14 @@ async def get_analysis(case: dict) -> tuple[str | None, str]:
         # expect_no_data=true인 케이스에서 Retriever가 실제로 0건을 찾았다면
         # 이건 실패가 아니라 설계된 정답이다("관련 데이터 없음"을 올바르게
         # 인지해야 하는 케이스). 원인 불명 SKIP과 구분해서 PASS_NO_DATA로 표시한다.
+        technical_detail = f"trace={trace} | intent={intent}"
         if case.get("expect_no_data") and "Retriever:count=0" in trace:
-            return None, f"PASS_NO_DATA({elapsed:.1f}초) - trace={trace} | intent={intent}"
-        return None, f"SKIP: 파이프라인 실패({elapsed:.1f}초) - trace={trace} | intent={intent}"
+            return (
+                None,
+                f"데이터 없음 예상 케이스에서 Retriever 검색 결과 0건을 정상 확인함 ({elapsed:.1f}초)",
+                technical_detail,
+            )
+        return None, f"SKIP: 파이프라인 실패({elapsed:.1f}초)", technical_detail
     analysis = (
         f"[Interpreter 의도]\n{out.get('intent_json', '{}')}\n\n"
         f"[Retriever 및 Agent 연계 추적]\n{out.get('trace', '')}\n\n"
@@ -260,13 +276,13 @@ async def get_analysis(case: dict) -> tuple[str | None, str]:
         f"[Improver 정책 개선안]\n{out.get('policy', '')}\n\n"
         f"[전체 응답시간]\n{elapsed:.2f}초"
     )
-    return analysis, "live"
+    return analysis, "live", ""
 
 
 def _empty_row(
     cid, mode, judge_model, criteria_names, verdict, rationale,
     question="", total="", pipeline_seconds=None, judge_seconds=None,
-    total_seconds=None,
+    total_seconds=None, technical_detail="",
 ):
     value = "N/A" if total == "N/A" else ""
     return {
@@ -283,6 +299,7 @@ def _empty_row(
         "judge_seconds": judge_seconds,
         "total_seconds": total_seconds,
         "rationale": rationale,
+        "technical_detail": technical_detail,
         "analysis": "",
     }
 
@@ -320,13 +337,16 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
         _write_reports(rows, criteria_names, rubric)
         run_log.update(rows)
 
+    progress_run_id = os.environ.get("ALLSTAR_VOC_PROGRESS_RUN_ID", "")
     for case in cases:
         cid = case["case_id"]
         mode = case.get("judge_mode", "live")
         case_started = time.perf_counter()
+        start_case(progress_run_id, cid)
         print(f"\n=== {cid} ({mode}) ===")
         if not case.get("judge_enabled", False):
             note = "pytest 장애 검증 전용 케이스 - LLM Judge 자동 실행 제외"
+            skip_stages(progress_run_id, cid, 1, note)
             print(f"  {note}")
             total_seconds = time.perf_counter() - case_started
             rows.append(_empty_row(
@@ -334,18 +354,30 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
                 question=case["question"], total_seconds=total_seconds,
             ))
             save()
+            finish_case(progress_run_id, cid, "skipped")
             continue
         print(f"  [1/2] {cid} 6개 에이전트 파이프라인 진행 중...", flush=True)
         pipeline_started = time.perf_counter()
-        analysis, note = await get_analysis(case)
+        analysis_result = await get_analysis(case)
+        if len(analysis_result) == 2:
+            # 기존 확장 코드와 모의 테스트가 사용하던 반환 형식도 계속 지원한다.
+            analysis, note = analysis_result
+            technical_detail = ""
+        else:
+            analysis, note, technical_detail = analysis_result
         pipeline_seconds = time.perf_counter() - pipeline_started
         print(f"  [1/2] {cid} 파이프라인 완료 ({pipeline_seconds:.2f}초)", flush=True)
         if analysis is None:
             print(f"  {note}")
             # PASS_NO_DATA: expect_no_data 케이스에서 Retriever가 실제로 0건을
             # 찾은, 설계상 정답인 상황. 일반 "미평가"와 구분해서 표시한다.
-            is_no_data = note.startswith("PASS_NO_DATA")
+            is_no_data = bool(case.get("expect_no_data") and "검색 결과 0건" in note)
             is_cross_failure = bool(experiment) and not is_no_data
+            if is_no_data:
+                skip_stages(progress_run_id, cid, 7, "데이터 없음이 정상 결과이므로 독립 채점 생략")
+            else:
+                fail_active_stage(progress_run_id, cid, note)
+                skip_stages(progress_run_id, cid, 7, "생성 파이프라인 실패로 독립 채점 생략")
             verdict = (
                 "PASS (예외처리)" if is_no_data
                 else "미평가(파이프라인 실패)" if is_cross_failure
@@ -358,11 +390,13 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
                 question=case["question"], pipeline_seconds=pipeline_seconds,
                 judge_seconds=0.0, total_seconds=total_seconds,
                 total="N/A" if is_cross_failure else "",
+                technical_detail=technical_detail,
             )
             if is_cross_failure:
                 row["api_attempts"] = "생성 파이프라인 실패, 대체 없음"
             rows.append(row)
             save()
+            finish_case(progress_run_id, cid, "completed" if is_no_data else "failed")
             continue
 
         expected = {
@@ -374,6 +408,7 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
         prompt_analysis = f"[테스트 기대 결과]\n{expected}\n\n{analysis}"
         prompt = build_judge_prompt(case["question"], prompt_analysis, rubric)
         print(f"  [2/2] {cid} 독립 LLM Judge 채점 진행 중...", flush=True)
+        set_stage(progress_run_id, cid, 7, "running", "독립 LLM Judge 채점 진행 중")
         judge_started = time.perf_counter()
         try:
             call_result = await judge_llm(prompt)
@@ -383,6 +418,7 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
             reason = str(error)
             print(f"  N/A - {reason}")
             print(f"  [2/2] {cid} Judge 실패 ({judge_seconds:.2f}초)", flush=True)
+            set_stage(progress_run_id, cid, 7, "failed", reason)
             print(f"  [완료] {cid} 전체 소요시간 {total_seconds:.2f}초", flush=True)
             rows.append(_empty_row(
                 cid, mode, "N/A", criteria_names,
@@ -391,11 +427,13 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
                 total_seconds=total_seconds,
             ))
             save()
+            finish_case(progress_run_id, cid, "failed")
             continue
 
         judge_seconds = time.perf_counter() - judge_started
         total_seconds = time.perf_counter() - case_started
         print(f"  [2/2] {cid} Judge 완료 ({judge_seconds:.2f}초)", flush=True)
+        set_stage(progress_run_id, cid, 7, "done", f"독립 채점 완료 · {judge_seconds:.2f}초")
         print(f"  [완료] {cid} 전체 소요시간 {total_seconds:.2f}초", flush=True)
 
         result = parse_judge_response(call_result.text, rubric)
@@ -412,6 +450,8 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
             row["total_seconds"] = total_seconds
             rows.append(row)
             save()
+            set_stage(progress_run_id, cid, 7, "failed", "채점 응답 파싱 실패")
+            finish_case(progress_run_id, cid, "failed")
             continue
 
         verdict = decide_verdict(result["total"], result["immediate_hold"], rubric)
@@ -433,6 +473,7 @@ async def _run_judge(cases: list[dict], run_log: JudgeRunLog) -> int:
             "analysis": analysis,  # 채점 대상이 된 실제 파이프라인 답변 원문
         })
         save()
+        finish_case(progress_run_id, cid, "completed")
 
     csv_path = ACTIVE_REPORTS_DIR / "llm_judge_result.csv"
     md_path = ACTIVE_REPORTS_DIR / "quality_score_report.md"
@@ -510,7 +551,10 @@ def _format_case_detail(row: dict, criteria_names: list[str], max_by_name: dict[
         else:
             score_bits.append(f"{name} {value}/{max_by_name.get(name, '?')}")
     lines.append("- 항목별 점수: " + " · ".join(score_bits))
-    lines.append(f"- 채점 근거: {row.get('rationale') or '-'}")
+    rationale = row.get("rationale") or "-"
+    if str(row.get("verdict", "")).startswith("PASS"):
+        rationale = "데이터 없음이 예상된 케이스에서 Retriever 검색 결과 0건을 확인해 정상 예외처리했습니다."
+    lines.append(f"- 채점 근거: {rationale}")
     lines.append("")
 
     analysis = row.get("analysis") or ""
@@ -553,7 +597,7 @@ def _write_reports(rows, criteria_names, rubric):
         "experiment", "generation_provider", "generation_model",
         "case_id", "question", "mode", "judge_model", *criteria_names,
         "total", "verdict", "immediate_hold", "api_attempts",
-        "pipeline_seconds", "judge_seconds", "total_seconds", "rationale", "analysis",
+        "pipeline_seconds", "judge_seconds", "total_seconds", "rationale", "technical_detail", "analysis",
     ]
 
     def _write_csv():
@@ -657,8 +701,26 @@ def _write_reports(rows, criteria_names, rubric):
         f"![테스트케이스별 처리시간](assets/{charts['durations'].name})", "",
     ]
     if pass_no_data:
-        lines += ["", "## PASS(예외처리) 케이스 - 데이터 없음을 정상적으로 인지함 (평균 점수 미포함)", ""]
-        lines.extend(f"- {row['case_id']}: {row['rationale']}" for row in pass_no_data)
+        lines += [
+            "", "## PASS(예외처리) 케이스 - 데이터 없음을 정상적으로 인지함 (평균 점수 미포함)", "",
+            "| 케이스 | 판정 | 확인 결과 | 처리시간 |",
+            "|---|---|---|---:|",
+        ]
+        for row in pass_no_data:
+            try:
+                duration = f"{float(row.get('total_seconds')):.1f}초"
+            except (TypeError, ValueError):
+                duration = "-"
+            lines.append(
+                f"| {row['case_id']} | PASS(예외처리) | 데이터 없음 예상 · Retriever 검색 0건 확인 | {duration} |"
+            )
+        technical_rows = [row for row in pass_no_data if row.get("technical_detail") or row.get("rationale")]
+        if technical_rows:
+            lines += ["", "<details><summary>PASS(예외처리) 기술 상세 펼치기</summary>", ""]
+            for row in technical_rows:
+                detail = row.get("technical_detail") or row.get("rationale") or "-"
+                lines += [f"- {row['case_id']}", "", "```text", str(detail), "```", ""]
+            lines += ["</details>", ""]
     if api_failed:
         failure_title = (
             "API 1회 호출 실패 내역 (요약)"
@@ -682,7 +744,7 @@ def _write_reports(rows, criteria_names, rubric):
         f"- API 실패로 미평가(N/A): {len(api_failed)}",
         f"- 평균 점수: {average if average is not None else '미평가'}", "",
         f"### 최종 판정: **{decision}**", "",
-        "판정 기준: 90+ 배포 가능 / 80~89 조건부 배포 / 70~79 개선 후 재시험 / ~69 배포 보류",
+        "판정 기준: 90점 이상 배포 가능 / 80–89점 조건부 배포 / 70–79점 개선 후 재시험 / 69점 이하 배포 보류",
     ]
     md_path = reports_dir / "quality_score_report.md"
     _safe_write(md_path, lambda: md_path.write_text("\n".join(lines), encoding="utf-8"))

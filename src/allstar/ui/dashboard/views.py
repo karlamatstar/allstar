@@ -10,11 +10,13 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import httpx
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+import streamlit.components.v1 as components
 
 from allstar.ai_agent.evaluation.live_report_status import ACTIVE_STATES, STATUS_PATH, read_status
 from allstar.shared.model_profiles import public_profiles
@@ -26,6 +28,7 @@ from allstar.shared.paths import (
     VOC_LOG_ROOT,
     VOC_REPORT_ROOT,
 )
+from allstar.voc.evaluation.progress import read_progress
 
 
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
@@ -41,6 +44,15 @@ AI_LIVE_REPORT = AI_AGENT_REPORT_ROOT / "live" / "live_report.csv"
 AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
 AI_JUDGMENTS = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
 PROCESS_LOG_ROOT = PROJECT_ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
+GRAFANA_DASHBOARD_PATHS = {
+    "ai-agent-quality": PROJECT_ROOT / "ops" / "monitoring" / "grafana_dashboard.json",
+    "k6-performance-test": PROJECT_ROOT / "ops" / "monitoring" / "k6_dashboard.json",
+    "voc-live-operations": PROJECT_ROOT / "ops" / "monitoring" / "voc_live_dashboard.json",
+    "voc-qa-abcd": PROJECT_ROOT / "ops" / "monitoring" / "voc_qa_dashboard.json",
+}
+GRAFANA_GRID_ROW_HEIGHT = 38
+GRAFANA_FRAME_PADDING = 170
+MARKDOWN_IMAGE_PATTERN = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
 LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo
 LOCAL_TIME_FORMAT = "%Y/%m/%d - %H:%M:%S"
 
@@ -160,6 +172,14 @@ def _section(title: str, help_text: str | None = None) -> None:
         st.caption(help_text)
 
 
+def _required_api_confirmation(key: str, label: str) -> bool:
+    """실제 외부 API 실행 전에 반드시 확인해야 하는 항목을 강조해 표시한다."""
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", key)
+    with st.container(key=f"required_api_confirm_{safe_key}"):
+        st.markdown("<div class='required-confirm-title'>필수 체크 사항</div>", unsafe_allow_html=True)
+        return st.checkbox(label, key=key)
+
+
 def _render_dataframe(df: pd.DataFrame, height: int = 330) -> None:
     st.dataframe(_localize_timestamp_columns(df), width="stretch", height=height, hide_index=True)
 
@@ -181,20 +201,41 @@ def _next_case_id(cases: list[dict], digits: int) -> str:
     return f"TC-{max(numbers, default=0) + 1:0{digits}d}"
 
 
-def _launch_process(state_key: str, command: list[str], log_prefix: str) -> None:
+def _launch_process(
+    state_key: str,
+    command: list[str],
+    log_prefix: str,
+    run_id: str | None = None,
+) -> str:
     PROCESS_LOG_ROOT.mkdir(parents=True, exist_ok=True)
-    run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    run_id = run_id or datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     log_path = PROCESS_LOG_ROOT / f"{log_prefix}_{run_id}.log"
     stream = log_path.open("w", encoding="utf-8")
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     process = subprocess.Popen(
         command,
         cwd=PROJECT_ROOT,
         stdout=stream,
         stderr=subprocess.STDOUT,
+        env=env,
         creationflags=CREATE_NO_WINDOW,
     )
     stream.close()
     st.session_state[state_key] = {"process": process, "log_path": str(log_path), "started_at": time.time(), "run_id": run_id}
+    return run_id
+
+
+def _read_process_output(path: Path) -> str:
+    """신규 UTF-8 로그와 과거 Windows CP949 로그를 모두 읽는다."""
+    if not path.exists():
+        return ""
+    raw = path.read_bytes()
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp949", errors="replace")
 
 
 def _render_process(state_key: str, label: str) -> tuple[bool, str]:
@@ -203,7 +244,7 @@ def _render_process(state_key: str, label: str) -> tuple[bool, str]:
         return False, ""
     process: subprocess.Popen = state["process"]
     log_path = Path(state["log_path"])
-    output = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+    output = _read_process_output(log_path)
     return_code = process.poll()
     elapsed = time.time() - state["started_at"]
     if return_code is None:
@@ -250,6 +291,8 @@ def _status_stage_states(status: dict) -> list[str]:
 
 
 def _status_stage_details(status: dict) -> list[Any]:
+    if status.get("_stage_details"):
+        return list(status["_stage_details"])
     result = status.get("result") or {}
     trace = str(result.get("trace") or "")
     retriever = ""
@@ -267,25 +310,50 @@ def _status_stage_details(status: dict) -> list[Any]:
     ]
 
 
-def _render_stage_explorer(status: dict, key_prefix: str) -> None:
+def _render_stage_flow(states: list[str]) -> None:
+    state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀"}
+    nodes = []
+    for index, ((english, korean), state) in enumerate(zip(STAGES, states)):
+        nodes.append(
+            f"<div class='stage-node stage-{state}'><span>{index + 1}</span>"
+            f"<b>{html.escape(korean)}</b><small>{html.escape(english)}</small>"
+            f"<em>{state_labels[state]}</em></div>"
+        )
+        if index < len(STAGES) - 1:
+            nodes.append("<div class='stage-arrow' aria-hidden='true'>→</div>")
+    st.markdown(f"<div class='stage-flow'>{''.join(nodes)}</div>", unsafe_allow_html=True)
+
+
+def _render_stage_explorer(status: dict, key_prefix: str, interactive: bool = True) -> None:
     states = _status_stage_states(status)
     details = _status_stage_details(status)
     symbols = {"pending": "○", "running": "◔", "done": "✓", "failed": "!", "skipped": "－"}
     state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀"}
     selected_key = f"{key_prefix}_selected_stage"
     st.session_state.setdefault(selected_key, 0)
-    for start, end in ((0, 4), (4, 7)):
-        columns = st.columns(end - start)
-        for index, column in zip(range(start, end), columns):
-            english, korean = STAGES[index]
-            state = states[index]
-            if column.button(
-                f"{symbols[state]} {index + 1}. {korean}\n({english})\n{state_labels[state]}",
-                key=f"{key_prefix}_stage_{index}",
-                disabled=state in {"pending", "running"},
-                width="stretch",
-            ):
-                st.session_state[selected_key] = index
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
+    with st.container(key=f"stage_scroll_{safe_key}"):
+        _render_stage_flow(states)
+        if interactive:
+            with st.container(horizontal=True, gap="small", key=f"stage_buttons_{safe_key}"):
+                for index, (english, korean) in enumerate(STAGES):
+                    state = states[index]
+                    with st.container(width=180, key=f"stage_cell_{safe_key}_{index}"):
+                        if st.button(
+                            f"{symbols[state]} {index + 1}. {korean}\n({english}) {state_labels[state]}",
+                            key=f"{key_prefix}_stage_{index}",
+                            disabled=state in {"pending", "running"},
+                            width="stretch",
+                        ):
+                            st.session_state[selected_key] = index
+                    if index < len(STAGES) - 1:
+                        with st.container(width=26, key=f"stage_arrow_{safe_key}_{index}"):
+                            st.markdown(
+                                "<div class='stage-button-arrow'>→</div>",
+                                unsafe_allow_html=True,
+                            )
+    if not interactive:
+        return
     selected = st.session_state[selected_key]
     english, korean = STAGES[selected]
     st.markdown(f"#### {selected + 1}단계 · {korean} ({english})")
@@ -458,7 +526,15 @@ def render_ai_chat() -> None:
                     time_text = message.get("timestamp")
                     if label or time_text:
                         st.caption(" · ".join(value for value in (label, time_text) if value))
-        question = st.chat_input("AI 에이전트에게 질문하세요", key="ai_chat_input")
+        api_confirmed = _required_api_confirmation(
+            "ai_chat_api_confirm",
+            "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
+        )
+        question = st.chat_input(
+            "AI 에이전트에게 질문하세요",
+            key="ai_chat_input",
+            disabled=not api_confirmed,
+        )
         if question:
             history.append({"role": "user", "content": question, "label": "사용자", "timestamp": _local_time_text()})
             try:
@@ -565,7 +641,15 @@ def render_voc_chat() -> None:
         else:
             st.error("VOC 요청 상태를 확인할 수 없습니다.")
 
-    question = st.chat_input("VOC 관련 단발 질문을 입력하세요", key="voc_chat_input", disabled=bool(pending))
+    api_confirmed = _required_api_confirmation(
+        "voc_chat_api_confirm",
+        "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
+    )
+    question = st.chat_input(
+        "VOC 관련 단발 질문을 입력하세요",
+        key="voc_chat_input",
+        disabled=bool(pending) or not api_confirmed,
+    )
     if question:
         st.session_state.voc_chat_history.append({"role": "user", "content": question})
         try:
@@ -594,9 +678,63 @@ def render_monitoring() -> None:
             st.link_button(f"{name} 새 창에서 열기", url)
             if grafana_ready:
                 st.caption("아직 수집된 데이터가 없으면 Grafana 패널에 데이터 없음으로 표시됩니다.")
-                st.iframe(url, height=880)
+                components.iframe(url, height=_grafana_embed_height(uid), scrolling=False)
             else:
                 st.warning("운영 상태 화면(Grafana)이 중지되어 있습니다. AllStar 서버 관리에서 Grafana를 먼저 시작하세요.")
+
+
+def _grafana_embed_height(uid: str) -> int:
+    """Grafana JSON의 마지막 패널까지 iframe 안쪽 스크롤 없이 보이도록 높이를 계산한다."""
+    path = GRAFANA_DASHBOARD_PATHS.get(uid)
+    if path is None:
+        return 1200
+    document = _read_json(path, {})
+    panels = document.get("panels", []) if isinstance(document, dict) else []
+    bottom = max(
+        (
+            int(panel.get("gridPos", {}).get("y", 0))
+            + int(panel.get("gridPos", {}).get("h", 0))
+            for panel in panels
+            if isinstance(panel, dict)
+        ),
+        default=27,
+    )
+    return max(900, bottom * GRAFANA_GRID_ROW_HEIGHT + GRAFANA_FRAME_PADDING)
+
+
+def _resolve_report_image(report_path: Path, target: str) -> Path | None:
+    """Markdown 상대 이미지가 보고서 폴더 안의 실제 PNG인지 안전하게 확인한다."""
+    cleaned = unquote(target.strip().strip("<>"))
+    if urlparse(cleaned).scheme or not cleaned:
+        return None
+    root = report_path.parent.resolve()
+    candidate = (root / cleaned).resolve()
+    if not candidate.is_relative_to(root) or candidate.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None
+    return candidate
+
+
+def _render_report_markdown_with_images(path: Path) -> set[Path]:
+    """Markdown 본문을 나누어 상대 이미지를 선언된 위치에 실제 이미지로 표시한다."""
+    markdown = path.read_text(encoding="utf-8")
+    used_images: set[Path] = set()
+    cursor = 0
+    for match in MARKDOWN_IMAGE_PATTERN.finditer(markdown):
+        before = markdown[cursor:match.start()]
+        if before.strip():
+            st.markdown(before, unsafe_allow_html=True)
+        alt_text, target = match.groups()
+        image_path = _resolve_report_image(path, target)
+        if image_path and image_path.is_file():
+            st.image(str(image_path), caption=alt_text or None, width="stretch")
+            used_images.add(image_path)
+        else:
+            st.warning(f"보고서 이미지 '{alt_text or target}'를 표시할 수 없습니다.")
+        cursor = match.end()
+    remainder = markdown[cursor:]
+    if remainder.strip():
+        st.markdown(remainder, unsafe_allow_html=True)
+    return used_images
 
 
 def _render_markdown_report(title: str, path: Path, description: str) -> None:
@@ -604,14 +742,39 @@ def _render_markdown_report(title: str, path: Path, description: str) -> None:
     if not path.exists():
         st.info("아직 생성된 보고서가 없습니다. 해당 챗봇 또는 시험을 실행하면 자동으로 갱신됩니다.")
         return
-    st.markdown(path.read_text(encoding="utf-8"), unsafe_allow_html=True)
+    used_images = _render_report_markdown_with_images(path)
     assets = path.parent / "assets"
     if assets.exists():
-        images = sorted(assets.glob("*.png"))
+        images = [image for image in sorted(assets.glob("*.png")) if image.resolve() not in used_images]
         if images:
-            st.markdown("### 보고서 그래프")
+            st.markdown("### 추가 보고서 그래프")
             for image in images:
                 st.image(str(image), width="stretch")
+
+
+def _voc_report_signature() -> tuple[int, ...]:
+    """프로필 보고서 완료 manifest와 종합 비교 보고서의 변경 시각을 반환한다."""
+    paths = [
+        *(VOC_REPORT_ROOT / "testcase" / profile / "report_manifest.json" for profile in "abcd"),
+        VOC_REPORT_ROOT / "cross_validation" / "교차검증_종합비교보고서.md",
+    ]
+    return tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
+
+
+@st.fragment(run_every=1.0)
+def watch_voc_report_updates() -> None:
+    """보고서 생성 완료를 감지해 리포트 모음을 수동 새로고침 없이 갱신한다."""
+    current = _voc_report_signature()
+    state_key = "voc_report_signature"
+    previous = st.session_state.get(state_key)
+    if previous is None:
+        st.session_state[state_key] = current
+        return
+    if current != previous:
+        st.session_state[state_key] = current
+        _read_csv.clear()
+        _read_json.clear()
+        st.rerun(scope="app")
 
 
 def render_reports() -> None:
@@ -637,7 +800,9 @@ def render_reports() -> None:
         with tab:
             _render_markdown_report(tab.label if hasattr(tab, "label") else "보고서", path, description)
     with tabs[5]:
-        profile_tabs = st.tabs(["A", "B", "C", "D", "종합 비교"])
+        profile_tabs = st.tabs(
+            ["교차 테스트 (A)", "교차 테스트 (B)", "교차 테스트 (C)", "교차 테스트 (D)", "종합 비교"]
+        )
         for tab, profile in zip(profile_tabs[:4], "abcd"):
             with tab:
                 _render_markdown_report(
@@ -688,8 +853,57 @@ def _render_quality_detail(df: pd.DataFrame | None) -> None:
 
 def _render_ai_case_management() -> None:
     cases = _read_json(AI_CASES_PATH, [])
+    running = bool(st.session_state.get("ai_batch_process"))
     _section("현재 테스트케이스")
+    if running:
+        st.warning("AI 에이전트 배치 테스트가 실행 중이므로 테스트케이스 추가·수정·삭제를 잠갔습니다.")
     _render_dataframe(pd.DataFrame(cases)) if cases else st.info("등록된 테스트케이스가 없습니다.")
+
+    if cases:
+        with st.expander("기존 AI 에이전트 테스트케이스 확인·수정", expanded=False):
+            selected_id = st.selectbox(
+                "확인·수정할 테스트케이스",
+                [case["case_id"] for case in cases],
+                format_func=lambda case_id: f"{case_id} · {next(case['category'] for case in cases if case['case_id'] == case_id)}",
+                key="ai_edit_case_id",
+            )
+            selected_case = next(case for case in cases if case["case_id"] == selected_id)
+            with st.form(f"ai_case_edit_{selected_id}"):
+                columns = st.columns(3)
+                case_id = columns[0].text_input("테스트케이스 ID", value=selected_id, disabled=True)
+                category = columns[1].text_input("카테고리", value=str(selected_case.get("category", "")))
+                test_types = ["Happy", "Edge", "Negative"]
+                current_type = str(selected_case.get("test_type", "Happy"))
+                test_type = columns[2].selectbox(
+                    "시험 유형",
+                    test_types,
+                    index=test_types.index(current_type) if current_type in test_types else 0,
+                )
+                question = st.text_area("사용자 질문", value=str(selected_case.get("user_question", "")), height=100)
+                keyword = st.text_input("기대 키워드", value=str(selected_case.get("expected_keyword", "")))
+                policy = st.text_area("기대 정책", value=str(selected_case.get("expected_policy", "")), height=80)
+                submitted_edit = st.form_submit_button(
+                    "선택한 테스트케이스 수정 저장", type="primary", disabled=running
+                )
+            if submitted_edit:
+                if not all(str(value).strip() for value in (category, question, keyword, policy)):
+                    st.error("카테고리·사용자 질문·기대 키워드·기대 정책을 모두 입력하세요.")
+                else:
+                    updated_case = {
+                        **selected_case,
+                        "case_id": case_id,
+                        "category": category.strip(),
+                        "test_type": test_type,
+                        "user_question": question.strip(),
+                        "expected_keyword": keyword.strip(),
+                        "expected_policy": policy.strip(),
+                    }
+                    archive_path = _archive_ai_case_document(cases)
+                    updated_cases = [updated_case if case["case_id"] == selected_id else case for case in cases]
+                    _write_json(AI_CASES_PATH, updated_cases)
+                    st.success(f"{selected_id}를 수정했습니다. 수정 전 실행본도 보존했습니다: {archive_path.name}")
+                    st.rerun()
+
     with st.expander("새 테스트케이스 추가", expanded=False):
         with st.form("ai_case_add", clear_on_submit=True):
             columns = st.columns(3)
@@ -699,7 +913,7 @@ def _render_ai_case_management() -> None:
             question = st.text_input("사용자 질문")
             keyword = st.text_input("기대 키워드")
             policy = st.text_input("기대 정책")
-            submitted = st.form_submit_button("테스트케이스 저장", type="primary")
+            submitted = st.form_submit_button("테스트케이스 저장", type="primary", disabled=running)
         if submitted:
             values = [case_id, category, question, keyword, policy]
             if not all(value.strip() for value in values):
@@ -717,12 +931,16 @@ def _render_ai_case_management() -> None:
     with st.expander("테스트케이스 삭제"):
         delete_ids = st.multiselect("삭제할 테스트케이스", [case["case_id"] for case in cases], key="ai_delete_ids")
         confirm = st.checkbox("선택한 테스트케이스 삭제를 확인합니다.", key="ai_delete_confirm")
-        if st.button("선택 삭제", disabled=not (delete_ids and confirm), key="ai_delete_button"):
+        if st.button("선택 삭제", disabled=running or not (delete_ids and confirm), key="ai_delete_button"):
+            _archive_ai_case_document(cases)
             _write_json(AI_CASES_PATH, [case for case in cases if case["case_id"] not in delete_ids])
             st.rerun()
     st.divider()
     st.markdown(f"<div class='scope-box'><b>전체 실행 범위</b><br>현재 등록된 {len(cases)}건 전체를 규칙 기반과 서버 연결 방식(API)으로 비교합니다.</div>", unsafe_allow_html=True)
-    confirm_run = st.checkbox("전체 테스트케이스 실행과 외부 API 비용 발생 가능성을 확인했습니다.", key="ai_run_confirm")
+    confirm_run = _required_api_confirmation(
+        "ai_run_confirm",
+        "전체 테스트케이스 실행 범위와 외부 API 비용 발생 가능성을 확인했습니다.",
+    )
     if st.button("전체 테스트케이스 실행", type="primary", disabled=not cases or not confirm_run or bool(st.session_state.get("ai_batch_process"))):
         _launch_process("ai_batch_process", [sys.executable, "-u", "-m", "allstar.ai_agent.evaluation.quality_pipeline"], "dashboard_ai_batch")
         st.rerun()
@@ -758,6 +976,18 @@ def render_ai_testcases() -> None:
 
 def _csv_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _archive_ai_case_document(cases: list[dict[str, Any]]) -> Path:
+    """AI Agent 현재 실행본을 수정·삭제 직전에 날짜별 이력으로 보존한다."""
+    archive_dir = AI_CASES_PATH.parent / "archive" / "revisions"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    archive_path = archive_dir / f"test_cases_before_change_{timestamp}.json"
+    temporary = archive_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(cases, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(archive_path)
+    return archive_path
 
 
 def _archive_voc_case_document(document: dict[str, Any]) -> Path:
@@ -912,9 +1142,13 @@ def _render_voc_case_management() -> list[dict]:
     return cases
 
 
-def _latest_voc_judge_log(profile: str) -> dict | None:
+def _latest_voc_judge_log(profile: str, run_id: str | None = None) -> dict | None:
     root = VOC_LOG_ROOT / "testcase" / profile.lower()
+    if run_id:
+        root = root / run_id
     paths = sorted(root.glob("*/llm_judge_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if run_id:
+        paths = sorted(root.glob("llm_judge_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     return _read_json(paths[0], None) if paths else None
 
 
@@ -948,6 +1182,41 @@ def _batch_status_from_row(row: dict, profile: str) -> dict:
     }
 
 
+def _progress_case_status(case: dict) -> dict:
+    stages = list(case.get("stages", []))
+    return {
+        "status": case.get("status", "running"),
+        "current_stage": next(
+            (stage.get("name", "") for stage in stages if stage.get("state") == "running"),
+            "완료" if case.get("status") in {"completed", "skipped", "failed"} else "대기",
+        ),
+        "_stage_states": [stage.get("state", "pending") for stage in stages],
+        "_stage_details": [stage.get("detail") or "아직 결과가 없습니다." for stage in stages],
+    }
+
+
+def _voc_run_metrics(log: dict | None) -> tuple[float | None, float | None, int]:
+    if not log:
+        return None, None, 0
+    rows = list(log.get("case_results", []))
+    times = []
+    for row in rows:
+        try:
+            times.append(float(row.get("total_seconds")))
+        except (TypeError, ValueError):
+            continue
+    average = sum(times) / len(times) if times else None
+    run_seconds = None
+    try:
+        started = pd.to_datetime(log.get("started_at"), errors="raise", utc=True)
+        finished = pd.to_datetime(log.get("finished_at"), errors="raise", utc=True)
+        run_seconds = (finished - started).total_seconds()
+    except (TypeError, ValueError):
+        pass
+    return run_seconds, average, len(times)
+
+
+@st.fragment(run_every=1.0)
 def _render_voc_real_test(cases: list[dict]) -> None:
     total = len(cases)
     ai_targets = sum(bool(case.get("judge_enabled", False)) for case in cases)
@@ -957,40 +1226,151 @@ def _render_voc_real_test(cases: list[dict]) -> None:
         unsafe_allow_html=True,
     )
     st.caption("A·B·C·D 중 하나를 누르면 해당 프로필로 등록된 전체 테스트케이스를 실행합니다. 한 번에 하나만 실행할 수 있습니다.")
-    confirmed = st.checkbox("전체 테스트케이스 실행 범위와 외부 API 비용 발생 가능성을 확인했습니다.", key="voc_all_confirm")
-    running = bool(st.session_state.get("voc_profile_process"))
+    confirmed = _required_api_confirmation(
+        "voc_all_confirm",
+        "전체 테스트케이스 실행 범위와 외부 API 비용 발생 가능성을 확인했습니다.",
+    )
+    process_state = st.session_state.get("voc_profile_process")
+    process = process_state.get("process") if process_state else None
+    return_code = process.poll() if process else None
+    running = bool(process_state and return_code is None)
+    completed_pending = bool(process_state and return_code is not None)
+    active_profile = st.session_state.get("voc_running_profile")
     profiles = public_profiles()
     columns = st.columns(4)
     for column, profile in zip(columns, profiles):
         generation, judge = profile["generation"], profile["judge"]
         with column:
+            card_state = ""
+            status_badge = ""
+            if active_profile == profile["profile_id"] and running:
+                card_state = " profile-running"
+                status_badge = "<div class='profile-status'>실행 중</div>"
+            elif active_profile == profile["profile_id"] and completed_pending:
+                card_state = " profile-completed"
+                status_badge = "<div class='profile-status'>완료 확인 대기</div>"
             st.markdown(
-                f"<div class='profile-card'><div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
+                f"<div class='profile-card{card_state}'>{status_badge}<div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
                 f"<div class='profile-summary'>{html.escape(profile['summary'])}</div><hr>"
                 f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / {reasoning_text(generation['reasoning'])}<br>"
                 f"독립 평가: {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}</div></div>",
                 unsafe_allow_html=True,
             )
-            if st.button(f"{profile['profile_id']} 전체 테스트 실행", key=f"run_profile_{profile['profile_id']}", type="primary", disabled=running or not confirmed or not cases, width="stretch"):
+            disabled = running or (not completed_pending and (not confirmed or not cases))
+            clicked = st.button(
+                f"{profile['profile_id']} 전체 테스트 실행",
+                key=f"run_profile_{profile['profile_id']}",
+                type="primary",
+                disabled=disabled,
+                width="stretch",
+            )
+            if clicked and completed_pending:
+                st.session_state.voc_profile_notice = (
+                    f"프로필 {active_profile} 완료 상태를 먼저 닫은 뒤 프로필 {profile['profile_id']} 테스트를 실행해 주세요."
+                )
+            elif clicked:
+                run_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
                 _launch_process(
                     "voc_profile_process",
-                    [sys.executable, "-u", str(PROJECT_ROOT / "tools" / "scripts" / "run_voc_profile.py"), "--profile", profile["profile_id"]],
+                    [
+                        sys.executable, "-u",
+                        str(PROJECT_ROOT / "tools" / "scripts" / "run_voc_profile.py"),
+                        "--profile", profile["profile_id"], "--run-id", run_id,
+                    ],
                     f"dashboard_voc_{profile['profile_id'].lower()}",
+                    run_id=run_id,
                 )
                 st.session_state.voc_running_profile = profile["profile_id"]
-                st.rerun()
+                st.session_state.pop("voc_profile_notice", None)
+
+    if st.session_state.get("voc_profile_notice"):
+        st.warning(st.session_state.voc_profile_notice)
+
+    process_state = st.session_state.get("voc_profile_process")
+    if not process_state:
+        return
+    process = process_state["process"]
+    return_code = process.poll()
+    running = return_code is None
     profile = st.session_state.get("voc_running_profile", "A")
-    _render_process("voc_profile_process", f"VOC 프로필 {profile} 전체 테스트케이스")
-    log = _latest_voc_judge_log(profile)
-    if log:
+    run_id = process_state["run_id"]
+    output = _read_process_output(Path(process_state["log_path"]))
+    progress = read_progress(run_id)
+    log = _latest_voc_judge_log(profile, run_id)
+
+    if running:
+        elapsed = time.time() - process_state["started_at"]
+        st.info(f"VOC 프로필 {profile} 전체 테스트케이스 실행 중 · {elapsed:.1f}초 경과")
+        if st.button("실행 중지", key="stop_voc_profile_process"):
+            process.terminate()
+            st.session_state.voc_profile_notice = "실행 중지 요청을 보냈습니다. 현재 처리 상태를 확인해 주세요."
+    else:
+        run_seconds, average, measured = _voc_run_metrics(log)
+        total_text = f"총 {run_seconds:.1f}초" if run_seconds is not None else "총 소요시간 미확인"
+        average_text = f"테스트케이스 평균 {average:.1f}초 ({measured}건 기준)" if average is not None else "평균시간 미확인"
+        message = f"VOC 프로필 {profile} 전체 테스트케이스 완료 · {total_text} · {average_text}"
+        if return_code == 0:
+            st.success(message)
+        else:
+            st.error(f"{message} · 종료 코드 {return_code}")
+        if st.button(
+            f"프로필 {profile} 완료 상태 닫기 · 다음 테스트 준비",
+            key="clear_voc_profile_process",
+            type="primary",
+            width="stretch",
+        ):
+            st.session_state.pop("voc_profile_process", None)
+            st.session_state.pop("voc_running_profile", None)
+            st.session_state.pop("voc_profile_notice", None)
+            _read_csv.clear()
+            st.rerun(scope="fragment")
+
+    if progress:
+        progress_cases = list(progress.get("cases", []))
+        terminal = sum(case.get("status") in {"completed", "failed", "skipped"} for case in progress_cases)
+        st.progress(terminal / max(len(progress_cases), 1))
+        st.caption(f"테스트케이스 처리 {terminal} / {len(progress_cases)} · 실행 프로필 {profile}")
+        if running:
+            current_id = progress.get("current_case_id")
+            current = next((case for case in progress_cases if case.get("case_id") == current_id), None)
+            if current:
+                st.markdown(
+                    f"### 현재 진행: {current['case_id']} · {html.escape(current.get('category') or '분류 없음')} "
+                    f"({current.get('index', 0)}/{progress.get('total_cases', total)})"
+                )
+                st.caption(current.get("question") or "질문 내용 없음")
+                _render_stage_explorer(
+                    _progress_case_status(current),
+                    f"voc_progress_{run_id}_{current['case_id']}",
+                    interactive=False,
+                )
+            elif progress.get("status") == "running":
+                st.info("첫 번째 테스트케이스 실행을 준비하고 있습니다.")
+        elif progress.get("status") == "running":
+            st.info("테스트케이스 처리는 끝났으며 정식 보고서를 정리하고 있습니다.")
+
+    if not running and log:
+        rows = list(log.get("case_results", []))
         counts = log.get("case_counts", {})
-        st.progress(min(100, int(counts.get("processed", 0) / max(counts.get("total_defined", total), 1) * 100)))
-        st.caption(f"처리 {counts.get('processed', 0)} / {counts.get('total_defined', total)} · 채점 {counts.get('scored', 0)} · N/A {counts.get('na', 0)}")
-        rows = log.get("case_results", [])
+        st.caption(
+            f"채점 대상 처리 {counts.get('processed', 0)} / {counts.get('judge_target', 0)} · "
+            f"정상 채점 {counts.get('scored', 0)} · N/A {counts.get('na', 0)}"
+        )
         if rows:
-            selected_id = st.selectbox("단계별 결과를 볼 테스트케이스", [row.get("case_id") for row in rows], key="voc_result_case")
+            selected_id = st.selectbox(
+                "단계별 결과를 볼 테스트케이스",
+                [row.get("case_id") for row in rows],
+                key=f"voc_result_case_{run_id}",
+            )
             row = next(row for row in rows if row.get("case_id") == selected_id)
-            _render_stage_explorer(_batch_status_from_row(row, profile), f"voc_batch_{profile}_{selected_id}")
+            _render_stage_explorer(
+                _batch_status_from_row(row, profile),
+                f"voc_batch_{run_id}_{profile}_{selected_id}",
+                interactive=True,
+            )
+
+    with st.expander("실행 내용 보기", expanded=False):
+        st.code(output[-12000:] or ("준비 중..." if running else "출력 없음"), language="text")
 
 
 def render_voc_testcases() -> None:

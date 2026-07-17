@@ -56,7 +56,14 @@ def test_report_collection_has_six_child_tabs_and_profile_comparison():
         "VOC A~D 테스트케이스 보고서",
     )
     assert all(label in VIEWS for label in labels)
-    assert '["A", "B", "C", "D", "종합 비교"]' in VIEWS
+    for label in (
+        "교차 테스트 (A)",
+        "교차 테스트 (B)",
+        "교차 테스트 (C)",
+        "교차 테스트 (D)",
+        "종합 비교",
+    ):
+        assert label in VIEWS
 
 
 def test_ai_and_voc_testcase_child_tabs_are_preserved():
@@ -66,15 +73,48 @@ def test_ai_and_voc_testcase_child_tabs_are_preserved():
     assert "A·B·C·D 중 하나를 누르면" in VIEWS
 
 
+def test_all_streamlit_external_api_entrypoints_use_required_confirmation_box():
+    assert "def _required_api_confirmation" in VIEWS
+    for key in (
+        "ai_chat_api_confirm",
+        "voc_chat_api_confirm",
+        "ai_run_confirm",
+        "voc_all_confirm",
+    ):
+        assert f'"{key}"' in VIEWS
+    assert VIEWS.count("_required_api_confirmation(") == 5  # 함수 정의 1회 + 사용 4회
+    assert "disabled=not api_confirmed" in VIEWS
+    assert "disabled=bool(pending) or not api_confirmed" in VIEWS
+    assert '[class*="st-key-required_api_confirm_"]' in APP
+
+
 def test_voc_has_seven_clickable_stage_definitions():
     for english in ("Interpreter", "Retriever", "Summarizer", "Evaluator", "Critic", "Improver", "LLM Judge"):
         assert english in VIEWS
     assert "_render_stage_explorer" in VIEWS
     assert "단계별 결과를 볼 테스트케이스" in VIEWS
+    assert 'st.container(key=f"stage_scroll_{safe_key}")' in VIEWS
+    assert "horizontal=True" in VIEWS
+    assert 'st.container(width=180, key=f"stage_cell_{safe_key}_{index}")' in VIEWS
+    assert 'st.container(width=26, key=f"stage_arrow_{safe_key}_{index}")' in VIEWS
+    assert 'f"{symbols[state]} {index + 1}. {korean}\\n({english}) {state_labels[state]}"' in VIEWS
+    assert '[class*="st-key-stage_arrow_"]' in APP
+    assert '[class*="st-key-stage_buttons_"] [data-testid="stMarkdownContainer"]' not in APP
+    assert "columns = st.columns([4, .7" not in VIEWS
+
+
+def test_voc_report_manifest_changes_trigger_full_app_refresh():
+    assert "def _voc_report_signature" in VIEWS
+    assert "def watch_voc_report_updates" in VIEWS
+    assert 'VOC_REPORT_ROOT / "testcase" / profile / "report_manifest.json"' in VIEWS
+    assert 'st.rerun(scope="app")' in VIEWS
+    assert "watch_voc_report_updates" in APP
 
 
 def test_voc_gui_runner_does_not_limit_cases_but_agent_runner_can():
-    assert '[sys.executable, "-u", str(PROJECT_ROOT / "tools" / "scripts" / "run_voc_profile.py"), "--profile", profile["profile_id"]]' in VIEWS
+    assert 'str(PROJECT_ROOT / "tools" / "scripts" / "run_voc_profile.py")' in VIEWS
+    assert '"--profile", profile["profile_id"], "--run-id", run_id' in VIEWS
     runner = (ROOT / "tools" / "scripts" / "run_voc_profile.py").read_text(encoding="utf-8")
     assert '"--case-id"' in runner
+    assert '"--run-id"' in runner
     assert "생략하면 등록된 전체 케이스를 실행한다" in runner

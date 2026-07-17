@@ -21,7 +21,7 @@ from lifecycle import (
     stop_docker_desktop,
     stop_project_and_docker,
     stop_project_services,
-    terminate_process_tree,
+    terminate_streamlit_processes,
 )
 
 
@@ -235,7 +235,7 @@ class ServerControl(tk.Tk):
         )
         self.streamlit_process = subprocess.Popen(
             [str(PYTHON), "-u", "-m", "streamlit", "run", "src/allstar/ui/dashboard/streamlit_app.py",
-             "--server.address", "127.0.0.1", "--server.port", "8501"],
+             "--server.address", "127.0.0.1", "--server.port", "8501", "--server.headless", "true"],
             cwd=ROOT, stdout=self.streamlit_log, stderr=subprocess.STDOUT,
             env=env,
             creationflags=subprocess.CREATE_NO_WINDOW,
@@ -246,8 +246,7 @@ class ServerControl(tk.Tk):
         pids = listening_pids(8501)
         if self.streamlit_process and self.streamlit_process.poll() is None:
             pids.add(self.streamlit_process.pid)
-        for pid in sorted(pids):
-            terminate_process_tree(pid, SHUTDOWN_LOG)
+        terminate_streamlit_processes(pids, SHUTDOWN_LOG)
         if self.streamlit_log:
             self.streamlit_log.close()
             self.streamlit_log = None

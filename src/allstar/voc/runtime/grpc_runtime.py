@@ -20,6 +20,7 @@ from typing import Dict, Any, Optional, List
 import grpc
 # Protocol Buffers로 생성된 메시지 및 서비스 정의
 from allstar.voc.protocol import voc_pb2, voc_pb2_grpc
+from allstar.voc.evaluation.progress import fail_active_stage, set_stage, skip_stages
 
 # ============ 프로젝트 내부 모듈 임포트 ============
 # settings.py에서 기본 CSV 경로를 불러오는 방식으로 통일
@@ -118,6 +119,8 @@ class VOCGRPCRuntime:
         timeout: float = 180.0,
         extra_filters: Optional[List[str]] = None,
         model_profile: Optional[Dict[str, Any]] = None,
+        progress_run_id: Optional[str] = None,
+        progress_case_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         자연어 질의를 받아 VOC 분석 파이프라인을 실행합니다.
@@ -153,19 +156,29 @@ class VOCGRPCRuntime:
         # 자연어 질의를 구조화된 파라미터(task, filters, max_items 등)로 변환합니다
         # insecure_channel은 TLS 없이 통신합니다 (로컬 개발 환경용)
         print("[파이프라인 1/6] Interpreter 진행 중...", flush=True)
+        set_stage(progress_run_id or "", progress_case_id or "", 1, "running", "질문 의도 분석 진행 중")
         interpreter_started = time.perf_counter()
-        async with grpc.aio.insecure_channel(INTERPRETER_ENDPOINT) as ch:
-            # gRPC 스텁 생성 (서버의 메서드를 호출할 수 있는 클라이언트 객체)
-            stub = voc_pb2_grpc.InterpreterStub(ch)
-            # ParseQuestion RPC 호출: 자연어 질의를 파싱하여 구조화된 정보 추출
-            res = await stub.ParseQuestion(
-                voc_pb2.ParseQuestionReq(
-                    question=question,      # 사용자의 자연어 질의
-                    default_csv=final_csv,  # 기본 CSV 경로 전달 (문자열 "default_csv" 방지)
-                    generation=generation_config,
-                ), timeout=timeout  # 타임아웃 설정
-            )
+        try:
+            async with grpc.aio.insecure_channel(INTERPRETER_ENDPOINT) as ch:
+                # gRPC 스텁 생성 (서버의 메서드를 호출할 수 있는 클라이언트 객체)
+                stub = voc_pb2_grpc.InterpreterStub(ch)
+                # ParseQuestion RPC 호출: 자연어 질의를 파싱하여 구조화된 정보 추출
+                res = await stub.ParseQuestion(
+                    voc_pb2.ParseQuestionReq(
+                        question=question,      # 사용자의 자연어 질의
+                        default_csv=final_csv,  # 기본 CSV 경로 전달 (문자열 "default_csv" 방지)
+                        generation=generation_config,
+                    ), timeout=timeout  # 타임아웃 설정
+                )
+        except Exception as error:
+            set_stage(progress_run_id or "", progress_case_id or "", 1, "failed", str(error))
+            skip_stages(progress_run_id or "", progress_case_id or "", 2, "질문 의도 분석 실패로 실행하지 않음")
+            raise
         interpreter_elapsed = time.perf_counter() - interpreter_started
+        set_stage(
+            progress_run_id or "", progress_case_id or "", 1, "done",
+            f"질문 의도 분석 완료 · {interpreter_elapsed:.2f}초",
+        )
         print(f"[파이프라인 1/6] Interpreter 완료 ({interpreter_elapsed:.2f}초)", flush=True)
 
         # ============ Intent 딕셔너리 구성 ============
@@ -193,16 +206,24 @@ class VOCGRPCRuntime:
         # 이렇게 하면 A2A 방식을 유지하면서도 최종 결과를 받을 수 있습니다
         async with grpc.aio.insecure_channel(SUMMARIZER_ENDPOINT) as ch:
             stub = voc_pb2_grpc.SummarizerStub(ch)
-            sres = await stub.RunPipeline(
-                voc_pb2.RunPipelineReq(
-                    csv_path=intent["csv_path"],
-                    filters=combined_filters,
-                    max_items=intent["max_items"],
-                    task=intent["task"],
-                    generation=generation_config,
-                ),
-                timeout=timeout
-            )
+            metadata = []
+            if progress_run_id and progress_case_id:
+                metadata = [("x-allstar-run-id", progress_run_id), ("x-allstar-case-id", progress_case_id)]
+            try:
+                sres = await stub.RunPipeline(
+                    voc_pb2.RunPipelineReq(
+                        csv_path=intent["csv_path"],
+                        filters=combined_filters,
+                        max_items=intent["max_items"],
+                        task=intent["task"],
+                        generation=generation_config,
+                    ),
+                    timeout=timeout,
+                    metadata=metadata,
+                )
+            except Exception as error:
+                fail_active_stage(progress_run_id or "", progress_case_id or "", str(error))
+                raise
 
         total_elapsed = time.perf_counter() - pipeline_started
         print(f"[파이프라인] 전체 분석 완료 ({total_elapsed:.2f}초)", flush=True)

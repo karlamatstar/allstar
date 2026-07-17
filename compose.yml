@@ -70,6 +70,8 @@ services:
     <<: *voc-common
     command: ["python", "-u", "-m", "allstar.voc.agents.summarizer"]
     ports: ["6003:6003"]
+    volumes:
+      - ./_OUTPUT:/srv/app/_OUTPUT
 
   voc-evaluator:
     <<: *voc-common
