@@ -17,7 +17,9 @@ from lifecycle import (
     docker_ready,
     ensure_docker_ready,
     listening_pids,
+    running_non_project_containers,
     stop_docker_desktop,
+    stop_project_and_docker,
     stop_project_services,
     terminate_process_tree,
 )
@@ -84,6 +86,7 @@ class ServerControl(tk.Tk):
         self.rows: dict[str, tk.Label] = {}
         self.web_buttons: dict[str, tuple[tk.Button, str]] = {}
         self.service_status: dict[str, bool] = {}
+        self.action_buttons: list[tk.Button] = []
         self.selected = tk.StringVar(value="portfolio-api")
         self.state_path = Path(
             os.getenv("ALLSTAR_SERVER_STATE", RUNTIME_DIR / f"server_control_{os.getpid()}.json")
@@ -121,9 +124,16 @@ class ServerControl(tk.Tk):
                  font=("Malgun Gothic", 15, "bold")).pack(side="left")
         actions = tk.Frame(top, bg="#151923")
         actions.pack(side="right")
-        self._button(actions, "상태 새로고침", self._request_status_refresh).pack(side="left", padx=4)
-        self._button(actions, "전체 시작", self.start_all, "#26734d").pack(side="left", padx=4)
-        self._button(actions, "전체 종료", self.stop_all, "#8a3142").pack(side="left", padx=4)
+        action_specs = [
+            ("상태 새로고침", self._request_status_refresh, "#2f3b52"),
+            ("전체 시작", self.start_all, "#26734d"),
+            ("서버 전체 종료", self.stop_all, "#8a3142"),
+            ("Docker 포함 전체 종료", self.stop_all_with_docker, "#a32626"),
+        ]
+        for label, command, color in action_specs:
+            button = self._button(actions, label, command, color)
+            button.pack(side="left", padx=4)
+            self.action_buttons.append(button)
 
         body = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bg="#151923")
         body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
@@ -249,6 +259,7 @@ class ServerControl(tk.Tk):
             self.events.put("\n[안내] 다른 시작·종료 작업이 진행 중입니다.\n")
             return
         self.operation_running = True
+        self._set_action_buttons(False)
 
         def worker():
             self.events.put("\n[전체 시작] Docker Desktop 상태를 확인합니다.\n")
@@ -259,7 +270,7 @@ class ServerControl(tk.Tk):
             self.events.put("[준비 완료] Docker Desktop이 실행 중입니다. 서버를 시작합니다.\n")
             docker_services = [key for _, key, _, _, kind in SERVICES if kind == "docker"]
             completed = subprocess.run(
-                ["docker", "compose", "up", "-d", *docker_services],
+                ["docker", "compose", "up", "-d", "--build", *docker_services],
                 cwd=ROOT, text=True, encoding="utf-8", errors="replace",
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW, check=False,
@@ -278,24 +289,70 @@ class ServerControl(tk.Tk):
             self.events.put("\n[안내] 다른 시작·종료 작업이 진행 중입니다.\n")
             return
         self.operation_running = True
+        self._set_action_buttons(False)
 
         def worker():
             stop_project_services(ROOT, self.state_path, SHUTDOWN_LOG)
-            self.events.put("\n[전체 종료] Streamlit과 프로젝트 서버를 종료했습니다.\n")
+            self.events.put("\n[서버 전체 종료] Streamlit과 프로젝트 서버를 종료했습니다. Docker Desktop은 유지합니다.\n")
             self.after(0, self._finish_operation)
 
         threading.Thread(target=worker, daemon=True).start()
 
+    def stop_all_with_docker(self):
+        if self.operation_running:
+            self.events.put("\n[안내] 다른 시작·종료 작업이 진행 중입니다.\n")
+            return
+        self.operation_running = True
+        self._set_action_buttons(False)
+        self.events.put("\n[Docker 포함 전체 종료] 다른 프로젝트 컨테이너를 확인합니다.\n")
+
+        def inspect_worker():
+            other_containers = running_non_project_containers(ROOT)
+            self.after(0, lambda: self._confirm_docker_shutdown(other_containers))
+
+        threading.Thread(target=inspect_worker, daemon=True).start()
+
+    def _confirm_docker_shutdown(self, other_containers: list[str]):
+        message = (
+            "AllStar 서버와 Docker Desktop을 모두 종료합니다.\n\n"
+            "Docker를 사용하는 다른 프로젝트도 영향을 받을 수 있습니다. 계속하시겠습니까?"
+        )
+        if other_containers:
+            preview = ", ".join(other_containers[:5])
+            suffix = " 외" if len(other_containers) > 5 else ""
+            message += f"\n\nAllStar 이외 실행 중 컨테이너 {len(other_containers)}개: {preview}{suffix}"
+        if not messagebox.askyesno("Docker 포함 전체 종료 확인", message, icon="warning"):
+            self.events.put("[취소] Docker 포함 전체 종료를 취소했습니다.\n")
+            self._finish_operation()
+            return
+
+        def worker():
+            success = stop_project_and_docker(ROOT, self.state_path, SHUTDOWN_LOG)
+            if success:
+                self.events.put("[완료] AllStar 서버와 Docker Desktop을 모두 종료했습니다.\n")
+            else:
+                self.events.put("[일부 실패] 종료 기록에서 실패 원인을 확인하세요.\n")
+            self.after(0, self._finish_operation)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _set_action_buttons(self, enabled: bool):
+        state = "normal" if enabled else "disabled"
+        for button in self.action_buttons:
+            button.configure(state=state)
+
     def _finish_operation(self):
         self.operation_running = False
+        self._set_action_buttons(True)
         self._request_status_refresh()
 
     def close_application(self):
         if self.closing:
             return
         self.closing = True
-        self.title("AllStar 서버 관리 - 전체 서버 종료 중...")
-        self.events.put("\n[프로그램 종료 요청] 전체 서버를 종료한 뒤 창을 닫습니다.\n")
+        self._set_action_buttons(False)
+        self.title("AllStar 서버 관리 - 서버 전체 종료 중...")
+        self.events.put("\n[프로그램 종료 요청] 서버 전체 종료 후 창을 닫습니다. Docker Desktop은 유지합니다.\n")
 
         if self.streamlit_log:
             self.streamlit_log.close()
@@ -324,7 +381,7 @@ class ServerControl(tk.Tk):
                     "상단의 '전체 시작'을 이용하세요.\n"
                 )
                 return
-            self._docker("up", "-d", key, done=self._request_status_refresh)
+            self._docker("up", "-d", "--build", key, done=self._request_status_refresh)
 
     def _start_docker_selected(self):
         success = ensure_docker_ready(SHUTDOWN_LOG)

@@ -49,11 +49,22 @@ def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):
         "log_evaluation",
         lambda _question, _evaluation, model, request_id: events.append(("log", model, request_id)),
     )
-    monkeypatch.setattr(main_module, "_refresh_live_report_background", lambda: events.append(("refresh",)))
+    monkeypatch.setattr(
+        main_module,
+        "_refresh_live_report_background",
+        lambda: (events.append(("refresh",)) or {"ok": True, "summary": {"n_rows": 2}}),
+    )
+    monkeypatch.setattr(main_module, "mark_evaluating", lambda request_id, completed, message: events.append(("status", "evaluating", completed)))
+    monkeypatch.setattr(main_module, "mark_reporting", lambda request_id: events.append(("status", "reporting")))
+    monkeypatch.setattr(main_module, "mark_completed", lambda request_id, summary: events.append(("status", "completed")))
+    monkeypatch.setattr(main_module, "mark_failed", lambda request_id, error: events.append(("status", "failed")))
 
     main_module._score_both_and_check_jira_background(
         "질문", "API 답변", "규칙 답변", "request-1"
     )
 
-    assert events[:2] == [("log", "api", "request-1"), ("log", "rule", "request-1")]
-    assert events[-1] == ("refresh",)
+    assert ("log", "api", "request-1") in events
+    assert ("log", "rule", "request-1") in events
+    assert events.index(("log", "api", "request-1")) < events.index(("log", "rule", "request-1"))
+    assert ("refresh",) in events
+    assert events[-1] == ("status", "completed")

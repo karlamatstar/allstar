@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from allstar.ai_agent.evaluation.live_report_status import ACTIVE_STATES, STATUS_PATH, read_status
 from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import (
     AI_AGENT_LOG_ROOT,
@@ -40,6 +41,8 @@ AI_LIVE_REPORT = AI_AGENT_REPORT_ROOT / "live" / "live_report.csv"
 AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
 AI_JUDGMENTS = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
 PROCESS_LOG_ROOT = PROJECT_ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
+LOCAL_TIMEZONE = datetime.now().astimezone().tzinfo
+LOCAL_TIME_FORMAT = "%Y/%m/%d - %H:%M:%S"
 
 DECISION_COLORS = {"PASS": "#188a4c", "REVIEW": "#c07a12", "FAIL": "#c0392b", "N/A": "#6b7280", "미채점": "#6b7280"}
 SCORE_COLUMNS = ["accuracy_score", "groundedness_score", "helpfulness_score", "safety_score", "understandability_score"]
@@ -72,6 +75,34 @@ def _safe_json(value: Any) -> Any:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return value
+
+
+def _local_time_text(value: Any = None) -> str:
+    """UTC 문자열이나 datetime을 실행 컴퓨터의 로컬 시간 문자열로 표시한다."""
+    if value is None:
+        return datetime.now().astimezone().strftime(LOCAL_TIME_FORMAT)
+    try:
+        parsed = pd.to_datetime(value, errors="raise", utc=True)
+        return parsed.tz_convert(LOCAL_TIMEZONE).strftime(LOCAL_TIME_FORMAT)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _localize_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
+    view = df.copy()
+    for column in ("timestamp", "started_at", "updated_at", "completed_at"):
+        if column in view:
+            view[column] = view[column].map(_local_time_text)
+    return view
+
+
+def _clear_ai_live_caches() -> None:
+    _read_csv.clear()
+    _read_jsonl.clear()
+
+
+def _ai_report_status() -> dict[str, Any]:
+    return read_status(STATUS_PATH)
 
 
 @st.cache_data(ttl=2)
@@ -130,7 +161,7 @@ def _section(title: str, help_text: str | None = None) -> None:
 
 
 def _render_dataframe(df: pd.DataFrame, height: int = 330) -> None:
-    st.dataframe(df, width="stretch", height=height, hide_index=True)
+    st.dataframe(_localize_timestamp_columns(df), width="stretch", height=height, hide_index=True)
 
 
 def _render_decision_metrics(df: pd.DataFrame, decision_column: str = "overall_decision") -> None:
@@ -265,6 +296,151 @@ def _render_stage_explorer(status: dict, key_prefix: str) -> None:
         st.markdown(f"<div class='stage-detail'>{html.escape(str(value)).replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
 
 
+def _latest_judgment_view(judgments: pd.DataFrame) -> pd.DataFrame:
+    """원본 ID는 숨기고 같은 요청·모델의 최신 평가만 사람이 읽기 좋은 표로 만든다."""
+    if judgments.empty:
+        return judgments
+    source = judgments.copy()
+    source["_sort_time"] = pd.to_datetime(source.get("timestamp"), errors="coerce", utc=True)
+    source = source.sort_values("_sort_time")
+    if {"request_id", "model"}.issubset(source.columns):
+        with_id = source["request_id"].notna()
+        current = source[with_id].drop_duplicates(["request_id", "model"], keep="last")
+        legacy = source[~with_id]
+        source = pd.concat([current, legacy], ignore_index=True)
+
+    evaluations = source.get("evaluation", pd.Series([{}] * len(source))).map(_safe_json)
+    evaluations = evaluations.map(lambda value: value if isinstance(value, dict) else {})
+    view = pd.DataFrame({
+        "시간": source.get("timestamp", pd.Series([None] * len(source))).map(_local_time_text),
+        "질문": source.get("question", pd.Series([""] * len(source))),
+        "모델": source.get("model", pd.Series([""] * len(source))).map(
+            {"api": "서버 연결 방식(API)", "rule": "규칙 기반"}
+        ).fillna(source.get("model", pd.Series([""] * len(source)))),
+        "총점": evaluations.map(lambda value: value.get("total_score")),
+        "판정": evaluations.map(lambda value: value.get("overall_decision", "N/A")),
+        "평가 내용(Evaluation)": evaluations.map(lambda value: json.dumps(value, ensure_ascii=False)),
+    })
+    return view.sort_values("시간", ascending=False)
+
+
+def _conversation_log_view(conversations: pd.DataFrame, judgments: pd.DataFrame) -> pd.DataFrame:
+    """대화 원본 ID는 숨기고 백그라운드 평가 진행 상태를 함께 표시한다."""
+    view = conversations.copy()
+    judgment_counts: dict[str, int] = {}
+    if not judgments.empty and {"request_id", "model"}.issubset(judgments.columns):
+        judgment_counts = judgments.dropna(subset=["request_id"]).groupby("request_id")["model"].nunique().to_dict()
+
+    if "request_id" in view:
+        view["채점 상태"] = view["request_id"].map(
+            lambda request_id: (
+                "완료" if judgment_counts.get(request_id, 0) >= 2
+                else "진행 중" if judgment_counts.get(request_id, 0) == 1
+                else "채점 대기"
+            )
+        )
+    else:
+        view["채점 상태"] = "상태 확인 불가"
+    return view.drop(columns=["request_id"], errors="ignore")
+
+
+def _render_ai_report_status(status: dict[str, Any], key: str) -> None:
+    active = list(status.get("active_jobs") or [])
+    latest = status.get("latest") or {}
+    if active:
+        completed = sum(int(job.get("completed", 0)) for job in active)
+        total = sum(int(job.get("total", 2)) for job in active)
+        message = latest.get("message") or "새로운 품질 보고서를 작성 중입니다."
+        status_box = st.status(
+            f"{message} 대기 작업 {len(active)}건 · 평가 {completed}/{max(total, 1)}",
+            state="running",
+            expanded=False,
+        )
+        status_box.caption("완료되면 품질 현황·유형별 비교·대화별 채점 상세가 자동 갱신됩니다.")
+        status_box.update(state="running")
+    elif latest.get("state") == "FAILED":
+        st.error(f"{latest.get('message', '품질 보고서 작성에 실패했습니다.')} {latest.get('error', '')}".strip())
+    elif latest.get("state") == "COMPLETED":
+        st.success("새로운 품질 보고서가 반영되었습니다.")
+
+    if st.button(
+        "↻ AI 에이전트 데이터 갱신",
+        key=f"ai_live_refresh_{key}",
+        disabled=bool(active),
+        help="누적 대화·채점 로그를 다시 읽고 최신 품질 보고서를 재생성합니다.",
+    ):
+        try:
+            from allstar.ai_agent.evaluation.live_report_generator import generate_live_report
+
+            with st.spinner("누적 로그로 최신 품질 보고서를 다시 작성하고 있습니다..."):
+                generate_live_report()
+            _clear_ai_live_caches()
+            st.toast("AI 에이전트 품질 보고서를 갱신했습니다.", icon="✅")
+            st.rerun(scope="app")
+        except Exception as error:
+            st.error(f"품질 보고서를 갱신하지 못했습니다: {error}")
+
+
+def _render_ai_data_tab(kind: str, status: dict[str, Any]) -> None:
+    active = bool(status.get("active_count"))
+    conversations = _read_jsonl(AI_CONVERSATIONS)
+    judgments = _read_jsonl(AI_JUDGMENTS)
+    live_df = _read_csv(AI_LIVE_REPORT)
+
+    if kind == "log":
+        _render_ai_report_status(status, "log")
+        if conversations.empty:
+            st.info("아직 저장된 대화 로그가 없습니다.")
+        else:
+            conversation_view = _conversation_log_view(conversations, judgments)
+            _render_dataframe(conversation_view.sort_values("timestamp", ascending=False))
+        st.caption("백그라운드 독립 품질 평가 로그")
+        if judgments.empty:
+            st.info("아직 독립 품질평가 로그가 없습니다.")
+        else:
+            _render_dataframe(_latest_judgment_view(judgments), height=430)
+    elif kind == "quality":
+        _render_ai_report_status(status, "quality")
+        if live_df is None or live_df.empty:
+            if active:
+                st.info("첫 품질 보고서를 작성하고 있습니다. 완료되면 자동으로 표시됩니다.")
+            else:
+                st.info("아직 자동 생성된 AI 에이전트 챗봇 품질 보고서가 없습니다.")
+        else:
+            _render_decision_metrics(live_df)
+            chart_df = live_df.copy()
+            if "timestamp" in chart_df:
+                chart_df["표시 시간"] = chart_df["timestamp"].map(_local_time_text)
+            chart = px.bar(
+                chart_df,
+                x="표시 시간" if "표시 시간" in chart_df else chart_df.index,
+                y="total_score",
+                color="overall_decision",
+                color_discrete_map=DECISION_COLORS,
+                hover_data=[column for column in ("question", "summary") if column in chart_df],
+            )
+            st.plotly_chart(chart, width="stretch")
+    elif kind == "breakdown":
+        _render_ai_report_status(status, "breakdown")
+        _render_score_breakdown(live_df, model_column="model")
+    elif kind == "detail":
+        _render_ai_report_status(status, "detail")
+        _render_quality_detail(live_df)
+
+
+def _render_ai_data_tab_with_refresh(kind: str, initially_active: bool) -> None:
+    @st.fragment(run_every="1s" if initially_active else None)
+    def _poll_ai_data_tab() -> None:
+        status = _ai_report_status()
+        active = bool(status.get("active_count"))
+        _render_ai_data_tab(kind, status)
+        if initially_active and not active:
+            _clear_ai_live_caches()
+            st.rerun(scope="app")
+
+    _poll_ai_data_tab()
+
+
 def render_ai_chat() -> None:
     _section("AI 에이전트 챗봇", "기존 포트폴리오의 실시간 대화·로그·품질 분석 기능을 통합한 화면입니다.")
     tab_chat, tab_log, tab_quality, tab_breakdown, tab_detail = st.tabs(
@@ -272,56 +448,52 @@ def render_ai_chat() -> None:
     )
     with tab_chat:
         history = st.session_state.setdefault("ai_chat_history", [])
-        for message in history:
-            with st.chat_message(message["role"]):
-                st.write(message["content"])
-                if message.get("label"):
-                    st.caption(message["label"])
+        with st.container(height=520, border=True, autoscroll=True):
+            if not history:
+                st.caption("AI 에이전트에게 질문하면 이 영역에 메신저 형태로 대화가 표시됩니다.")
+            for message in history:
+                with st.chat_message(message["role"]):
+                    st.write(message["content"])
+                    label = message.get("label")
+                    time_text = message.get("timestamp")
+                    if label or time_text:
+                        st.caption(" · ".join(value for value in (label, time_text) if value))
         question = st.chat_input("AI 에이전트에게 질문하세요", key="ai_chat_input")
         if question:
-            history.append({"role": "user", "content": question})
+            history.append({"role": "user", "content": question, "label": "사용자", "timestamp": _local_time_text()})
             try:
                 with st.spinner("답변을 생성하고 있습니다..."):
                     with httpx.Client(timeout=TIMEOUT) as client:
                         response = client.post(f"{PORTFOLIO_API}/chat", json={"question": question})
                         response.raise_for_status()
                         body = response.json()
-                history.append({"role": "assistant", "content": body.get("answer", "응답이 없습니다."), "label": "서버 연결 방식(API)"})
+                response_time = _local_time_text()
+                history.append({
+                    "role": "assistant", "content": body.get("answer", "응답이 없습니다."),
+                    "label": "서버 연결 방식(API)", "timestamp": response_time,
+                })
                 if body.get("rule_answer"):
-                    history.append({"role": "assistant", "content": body["rule_answer"], "label": "규칙 기반"})
+                    history.append({
+                        "role": "assistant", "content": body["rule_answer"],
+                        "label": "규칙 기반", "timestamp": response_time,
+                    })
+                _clear_ai_live_caches()
             except Exception as error:
-                history.append({"role": "assistant", "content": f"AI 에이전트 서버 연결 실패: {error}"})
+                history.append({
+                    "role": "assistant", "content": f"AI 에이전트 서버 연결 실패: {error}",
+                    "label": "오류", "timestamp": _local_time_text(),
+                })
             st.rerun()
 
-    conversations = _read_jsonl(AI_CONVERSATIONS)
-    judgments = _read_jsonl(AI_JUDGMENTS)
-    live_df = _read_csv(AI_LIVE_REPORT)
-    with tab_log:
-        if conversations.empty:
-            st.info("아직 저장된 대화 로그가 없습니다.")
-        else:
-            _render_dataframe(conversations.sort_values("timestamp", ascending=False))
-        if not judgments.empty:
-            st.caption("백그라운드 독립 품질 평가 로그")
-            _render_dataframe(judgments.sort_values("timestamp", ascending=False))
-    with tab_quality:
-        if live_df is None or live_df.empty:
-            st.info("아직 자동 생성된 AI 에이전트 챗봇 품질 보고서가 없습니다.")
-        else:
-            _render_decision_metrics(live_df)
-            chart = px.bar(
-                live_df,
-                x="timestamp" if "timestamp" in live_df else live_df.index,
-                y="total_score",
-                color="overall_decision",
-                color_discrete_map=DECISION_COLORS,
-                hover_data=[column for column in ("question", "summary") if column in live_df],
-            )
-            st.plotly_chart(chart, width="stretch")
-    with tab_breakdown:
-        _render_score_breakdown(live_df, model_column="model")
-    with tab_detail:
-        _render_quality_detail(live_df)
+    initially_active = bool(_ai_report_status().get("active_count"))
+    for tab, kind in (
+        (tab_log, "log"),
+        (tab_quality, "quality"),
+        (tab_breakdown, "breakdown"),
+        (tab_detail, "detail"),
+    ):
+        with tab:
+            _render_ai_data_tab_with_refresh(kind, initially_active)
 
 
 def _render_profile_cards(profiles: list[dict], selected: str, disabled: bool, key_prefix: str) -> str:
@@ -505,7 +677,7 @@ def _render_quality_detail(df: pd.DataFrame | None) -> None:
     if df is None or df.empty:
         st.info("표시할 상세 결과가 없습니다.")
         return
-    view = df.copy()
+    view = df.drop(columns=["request_id"], errors="ignore").copy()
     if "overall_decision" in view:
         decisions = ["전체", *sorted(view["overall_decision"].dropna().unique().tolist())]
         selected = st.selectbox("판정 필터", decisions)
@@ -588,15 +760,115 @@ def _csv_list(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _archive_voc_case_document(document: dict[str, Any]) -> Path:
+    """현재 실행본을 수정·삭제 직전에 날짜별 이력으로 보존한다."""
+    archive_dir = VOC_CASES_PATH.parent / "archive" / "revisions"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
+    archive_path = archive_dir / f"test_cases_before_change_{timestamp}.json"
+    temporary = archive_path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(archive_path)
+    return archive_path
+
+
 def _render_voc_case_management() -> list[dict]:
     document = _read_json(VOC_CASES_PATH, {"description": "", "cases": []})
     cases = list(document.get("cases", []))
+    running = bool(st.session_state.get("voc_profile_process"))
     _section("현재 VOC 테스트케이스")
+    if running:
+        st.warning("A~D 실 테스트가 실행 중이므로 테스트케이스 추가·수정·삭제를 잠갔습니다.")
     if cases:
         columns = ["case_id", "category", "judge_enabled", "judge_mode", "question"]
         _render_dataframe(pd.DataFrame(cases)[columns], height=430)
     else:
         st.info("등록된 VOC 테스트케이스가 없습니다.")
+
+    if cases:
+        with st.expander("기존 VOC 테스트케이스 확인·수정", expanded=False):
+            selected_id = st.selectbox(
+                "확인·수정할 테스트케이스",
+                [case["case_id"] for case in cases],
+                format_func=lambda case_id: f"{case_id} · {next(case['category'] for case in cases if case['case_id'] == case_id)}",
+                key="voc_edit_case_id",
+            )
+            selected_case = next(case for case in cases if case["case_id"] == selected_id)
+            source_id = selected_case.get("archive_source_case_id", "신규 추가 사례")
+            st.caption(f"현재 ID는 결과 연결을 위해 유지합니다. 축소 전 출처 ID: {source_id}")
+            with st.form(f"voc_case_edit_{selected_id}"):
+                columns = st.columns(3)
+                case_id = columns[0].text_input("테스트케이스 ID", value=selected_id, disabled=True)
+                category = columns[1].text_input("카테고리", value=str(selected_case.get("category", "")))
+                judge_enabled = columns[2].checkbox(
+                    "독립 품질 평가 사용", value=bool(selected_case.get("judge_enabled", True))
+                )
+                judge_modes = ["live", "static", "pytest_fault"]
+                current_mode = str(selected_case.get("judge_mode", "live"))
+                judge_mode = st.selectbox(
+                    "평가 방식",
+                    judge_modes,
+                    index=judge_modes.index(current_mode) if current_mode in judge_modes else 0,
+                )
+                question = st.text_area("질문", value=str(selected_case.get("question", "")), height=110)
+                intent = st.text_input("기대 의도", value=str(selected_case.get("expected_intent", "")))
+                keywords = st.text_input(
+                    "기대 키워드 (쉼표로 구분)", value=", ".join(selected_case.get("expected_keywords", []))
+                )
+                required = st.text_input(
+                    "필수 출력 (쉼표로 구분)", value=", ".join(selected_case.get("required_output", []))
+                )
+                prohibited = st.text_input(
+                    "금지 출력 (쉼표로 구분)", value=", ".join(selected_case.get("prohibited_output", []))
+                )
+                option_columns = st.columns(2)
+                expect_no_data = option_columns[0].checkbox(
+                    "관련 데이터 없음이 정답인 사례", value=bool(selected_case.get("expect_no_data", False))
+                )
+                fault = option_columns[1].text_input("장애 유형 (선택)", value=str(selected_case.get("fault", "")))
+                analysis = st.text_area(
+                    "정적 평가 입력(Analysis, 선택)", value=str(selected_case.get("analysis", "")), height=90
+                )
+                note = st.text_area("참고 사항 (선택)", value=str(selected_case.get("note", "")), height=80)
+                submitted_edit = st.form_submit_button(
+                    "선택한 테스트케이스 수정 저장", type="primary", disabled=running
+                )
+            if submitted_edit:
+                required_values = (category, question, intent, required, prohibited)
+                if not all(str(value).strip() for value in required_values):
+                    st.error("카테고리·질문·기대 의도·필수 출력·금지 출력은 반드시 입력하세요.")
+                elif judge_mode == "pytest_fault" and not fault.strip():
+                    st.error("장애 평가 방식은 장애 유형을 입력해야 합니다.")
+                else:
+                    updated_case = {
+                        **selected_case,
+                        "case_id": case_id,
+                        "category": category.strip(),
+                        "judge_enabled": judge_enabled,
+                        "judge_mode": judge_mode,
+                        "question": question.strip(),
+                        "expected_intent": intent.strip(),
+                        "expected_keywords": _csv_list(keywords),
+                        "required_output": _csv_list(required),
+                        "prohibited_output": _csv_list(prohibited),
+                    }
+                    optional_values = {
+                        "expect_no_data": True if expect_no_data else None,
+                        "fault": fault.strip() or None,
+                        "analysis": analysis.strip() or None,
+                        "note": note.strip() or None,
+                    }
+                    for field, value in optional_values.items():
+                        if value is None:
+                            updated_case.pop(field, None)
+                        else:
+                            updated_case[field] = value
+                    archive_path = _archive_voc_case_document(document)
+                    updated_cases = [updated_case if case["case_id"] == selected_id else case for case in cases]
+                    _write_json(VOC_CASES_PATH, {**document, "cases": updated_cases})
+                    st.success(f"{selected_id}를 수정했습니다. 수정 전 실행본도 보존했습니다: {archive_path.name}")
+                    st.rerun()
+
     with st.expander("새 VOC 테스트케이스 추가"):
         with st.form("voc_case_add", clear_on_submit=True):
             columns = st.columns(3)
@@ -610,7 +882,7 @@ def _render_voc_case_management() -> list[dict]:
             prohibited = st.text_input("금지 출력 (쉼표로 구분)")
             expect_no_data = st.checkbox("관련 데이터 없음이 정답인 사례")
             note = st.text_input("참고 사항 (선택)")
-            submitted = st.form_submit_button("VOC 테스트케이스 저장", type="primary")
+            submitted = st.form_submit_button("VOC 테스트케이스 저장", type="primary", disabled=running)
         if submitted:
             if not all(value.strip() for value in (case_id, category, question, intent, keywords, required, prohibited)):
                 st.error("필수값을 모두 입력하세요.")
@@ -633,7 +905,8 @@ def _render_voc_case_management() -> list[dict]:
     with st.expander("VOC 테스트케이스 삭제"):
         delete_ids = st.multiselect("삭제할 테스트케이스", [case["case_id"] for case in cases], key="voc_delete_ids")
         confirm = st.checkbox("선택한 VOC 테스트케이스 삭제를 확인합니다.", key="voc_delete_confirm")
-        if st.button("선택 삭제", disabled=not (delete_ids and confirm), key="voc_delete_button"):
+        if st.button("선택 삭제", disabled=running or not (delete_ids and confirm), key="voc_delete_button"):
+            _archive_voc_case_document(document)
             _write_json(VOC_CASES_PATH, {**document, "cases": [case for case in cases if case["case_id"] not in delete_ids]})
             st.rerun()
     return cases

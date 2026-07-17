@@ -26,6 +26,7 @@ _OUTPUT/logs/ai_agent/live/judgments/live_evaluations.jsonl
 
 _OUTPUT/reports/ai_agent/live/live_report.md
 _OUTPUT/reports/ai_agent/live/live_report.csv
+_OUTPUT/reports/ai_agent/live/report_status.json
 _OUTPUT/reports/ai_agent/live/assets/decision_distribution.png
 _OUTPUT/reports/ai_agent/live/assets/quality_axis_average.png
 _OUTPUT/reports/ai_agent/live/assets/response_latency_trend.png
@@ -60,8 +61,26 @@ _OUTPUT/reports/ai_agent/live/assets/response_latency_trend.png
 
 - 통합 대시보드는 최신 Markdown과 PNG를 함께 표시한다.
 - 새 대화가 보고서보다 최신이면 백그라운드 채점·자동 갱신 중일 수 있다는 안내를 표시한다.
-- `실시간 보고서 다시 갱신` 버튼은 자동화 실패나 즉시 재집계가 필요할 때만 사용하는 보조 기능이다.
-- 대시보드 파일 캐시는 최대 10초 뒤 최신 결과를 다시 읽으며, 사용자는 `새로고침`으로 즉시 다시 읽을 수 있다.
+- `↻ AI 에이전트 데이터 갱신` 버튼은 자동화 실패나 즉시 재집계가 필요할 때 누적 로그로 최신 보고서를 다시 만드는 보조 기능이다.
+- 대시보드 파일 캐시는 2초이며, 보고서 작업 중에는 각 품질 하위 탭이 1초마다 상태를 확인한다.
+- 작업 상태는 `PENDING`, `EVALUATING`, `REPORTING`, `COMPLETED`, `FAILED`로 `report_status.json`에 공유한다.
+
+## 2026-07-17 화면·갱신 개선 구현 결과
+
+> 아래 요구사항은 구현과 비API 화면 검증을 완료했다.
+
+- 대시보드의 대화·채점·보고서 시간은 로컬 시간 기준 `YYYY/MM/DD - HH:mm:ss`로 통일한다.
+- 챗봇 화면은 Streamlit 메신저 구성요소로 사용자와 AI 메시지를 구분한다.
+- 채팅 기록 영역은 최대 높이를 두고 기록이 길어지면 페이지가 아니라 채팅 영역 내부에서 스크롤한다.
+- 채팅 입력 후 백그라운드 품질평가와 보고서 생성 상태를 화면에서 확인할 수 있게 한다.
+- 품질평가 또는 보고서 생성 중에는 품질 관련 하위 탭 맨 위에 `새로운 품질 보고서를 작성 중입니다`와 로딩 표시를 제공한다.
+- 완료되면 AI 에이전트 데이터 영역의 캐시를 비우고 품질 현황·유형별 비교·대화별 채점 상세를 자동 갱신한다.
+- 자동 갱신 실패나 즉시 재집계가 필요한 경우를 위해 AI 에이전트 공통 수동 갱신 버튼을 제공한다.
+- 대화 로그의 백그라운드 독립 품질평가 표에서는 `request_id`를 숨기되 원본 로그 연결에는 계속 사용한다.
+- 평가 표에는 기존 `evaluation` 데이터 표시를 유지하고, 모델 다음에 총점과 단일 판정 칼럼을 둔다.
+- 단일 판정 칼럼 값은 `PASS`, `REVIEW`, `FAIL`, `N/A` 중 하나로 표시한다.
+- 대화 한 건당 API·규칙 기반 두 평가가 존재할 수 있음을 화면에서 구분하며, 같은 요청·모델의 재평가는 최신 결과만 통계에 반영한다.
+- 채점이 아직 끝나지 않은 대화는 사라지지 않고 `채점 대기`로 표시한다.
 
 ## 오류 처리
 
@@ -79,3 +98,13 @@ _OUTPUT/reports/ai_agent/live/assets/response_latency_trend.png
 - AI Agent 전용 비API 테스트 10개가 통과했다.
 - 전체 비API 회귀는 144개 통과, 환경 조건 3개 건너뜀, 실제 API 종단 테스트 2개 선택 제외로 완료했다.
 - 실제 OpenAI·Anthropic 답변·채점 API는 호출하지 않았다.
+
+### 화면·상태 개선 추가 검증
+
+- 기존 누적 원본 3개 대화·6개 평가로 최신 Markdown·CSV·PNG를 재생성했다.
+- 로컬 시간 `YYYY/MM/DD - HH:mm:ss`, 높이 520px 채팅 영역, 대화별 `완료`·`진행 중`·`채점 대기` 표시를 확인했다.
+- 실제 브라우저에서 보고서 작성 중 스피너, 수동 갱신 버튼 잠금, 완료 후 성공 표시와 자동 데이터 갱신을 확인했다.
+- 대화 로그에서 요청 ID를 숨기고 평가 로그를 `시간 → 질문 → 모델 → 총점 → 판정 → 평가 내용(Evaluation)` 순서로 표시했다.
+- 최신 Docker 이미지의 `/report-status` 응답 코드 200과 완료 상태를 확인했다.
+- 화면 개선을 포함한 전체 비API 회귀는 169개 통과, 실제 API 종단 2개 선택 제외로 완료했다.
+- 이 추가 검증에서도 실제 OpenAI·Anthropic 답변·채점 API는 호출하지 않았다.

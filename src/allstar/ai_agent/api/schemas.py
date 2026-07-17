@@ -11,6 +11,7 @@ class ChatResponse(BaseModel):
     answer: str = Field(description="API 기반 에이전트 답변 (주 답변)")
     rule_answer: str = Field(description="규칙 기반 에이전트 답변 (비교용)")
     latency_ms: float
+    request_id: str | None = Field(default=None, description="대화와 백그라운드 채점을 연결하는 내부 식별자")
 
 
 class HealthResponse(BaseModel):

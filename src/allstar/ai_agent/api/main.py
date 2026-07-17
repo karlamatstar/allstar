@@ -13,6 +13,14 @@ from allstar.ai_agent.api.metrics import chat_request_latency_seconds, chat_requ
 from allstar.ai_agent.api.rule_based_agent import get_answer_from_rule_based_agent
 from allstar.ai_agent.api.schemas import ChatRequest, ChatResponse, HealthResponse
 from allstar.ai_agent.api.service_agent import ApiAgentUnavailableError, get_answer_from_api_agent
+from allstar.ai_agent.evaluation.live_report_status import (
+    mark_completed,
+    mark_evaluating,
+    mark_failed,
+    mark_pending,
+    mark_reporting,
+    read_status,
+)
 from allstar.shared.paths import REPORT_ROOT
 
 AXES = ["accuracy", "groundedness", "helpfulness", "safety", "understandability"]
@@ -39,6 +47,12 @@ app.mount("/reports", StaticFiles(directory=str(REPORT_ROOT)), name="reports")
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
+
+
+@app.get("/report-status", tags=["Live Report"])
+def report_status() -> dict:
+    """Streamlit이 백그라운드 채점·보고서 작성 상태를 확인한다."""
+    return read_status()
 
 @app.get("/fault-lab", tags=["Chaos Test"])
 async def fault_lab(scenario: str = "normal", delay_seconds: float = 0.0):
@@ -71,7 +85,7 @@ def _create_na_evaluation(reason: str) -> dict:
     }
 
 
-def _refresh_live_report_background() -> None:
+def _refresh_live_report_background() -> dict:
     """누적 대화·채점 로그를 바탕으로 최신 실시간 보고서를 안전하게 갱신한다."""
     try:
         from allstar.ai_agent.evaluation.live_report_generator import NoLiveLogsError, generate_live_report
@@ -79,19 +93,23 @@ def _refresh_live_report_background() -> None:
         summary = generate_live_report()
     except NoLiveLogsError as error:
         logger.warning(f"실시간 보고서 자동 갱신 생략: {error}")
+        return {"ok": False, "error": str(error)}
     except Exception as error:
         # 보고서 오류가 채팅 답변이나 채점 로그 보존에 영향을 주지 않도록 분리한다.
         logger.exception(f"실시간 보고서 자동 갱신 실패: {error}")
+        return {"ok": False, "error": str(error)}
     else:
         logger.info(
             "실시간 보고서 자동 갱신 완료 "
             f"(대화 {summary['n_conversations']}건, 평가 행 {summary['n_rows']}건)"
         )
+        return {"ok": True, "summary": summary}
 
 
 def _score_both_and_check_jira_background(question: str, api_answer: str, rule_answer: str, request_id: str, is_api_error: bool = False) -> None:
     api_eval = {}
     rule_eval = {}
+    mark_evaluating(request_id, 0, "API 답변을 독립 평가하고 있습니다.")
 
     # Score API
     if is_api_error:
@@ -118,6 +136,8 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
             judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
             log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
 
+    mark_evaluating(request_id, 1, "규칙 기반 답변을 독립 평가하고 있습니다.")
+
     # Score Rule
     try:
         rule_eval = get_evaluation_from_openai(user_question=question, ai_answer=rule_answer, agent_label=MODEL_LABELS.get(MODEL_RULE))
@@ -140,7 +160,12 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
 
     # 두 모델의 채점 로그가 모두 저장된 뒤 최신 보고서를 자동 갱신한다.
     # 이 함수 자체가 FastAPI 백그라운드 작업이므로 사용자 답변 반환을 지연시키지 않는다.
-    _refresh_live_report_background()
+    mark_reporting(request_id)
+    refresh_result = _refresh_live_report_background()
+    if refresh_result.get("ok"):
+        mark_completed(request_id, refresh_result.get("summary"))
+    else:
+        mark_failed(request_id, str(refresh_result.get("error") or "알 수 없는 보고서 생성 오류"))
 
     # Check for FAIL or REVIEW
     api_decision = api_eval.get("overall_decision", "PASS")
@@ -194,8 +219,9 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatRespons
         latency_ms = (time.perf_counter() - start) * 1000
         request_id = uuid.uuid4().hex
         log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
+        mark_pending(request_id)
         background_tasks.add_task(_score_both_and_check_jira_background, request.question, answer, rule_answer, request_id, False)
-        return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=latency_ms)
+        return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=latency_ms, request_id=request_id)
 
     is_api_error = False
     try:
@@ -216,9 +242,15 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatRespons
     if not request.is_latency_test:
         request_id = uuid.uuid4().hex
         log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
+        mark_pending(request_id)
         background_tasks.add_task(_score_both_and_check_jira_background, request.question, answer, rule_answer, request_id, is_api_error)
 
-    return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=round(latency_ms, 1))
+    return ChatResponse(
+        answer=answer,
+        rule_answer=rule_answer,
+        latency_ms=round(latency_ms, 1),
+        request_id=request_id if not request.is_latency_test else None,
+    )
 
 @app.post("/chat_mock", response_model=ChatResponse, tags=["Performance Test"])
 async def chat_mock(request: ChatRequest) -> ChatResponse:

@@ -107,12 +107,25 @@ def test_server_control_has_fixed_web_shortcuts_and_korean_docker_warning():
     assert "def open_selected" not in source
 
 
-def test_top_actions_are_declared_refresh_start_stop_order():
+def test_top_actions_are_declared_refresh_start_server_stop_docker_stop_order():
     source = (ROOT / "tools" / "server_control" / "main.py").read_text(encoding="utf-8")
-    refresh = source.index('self._button(actions, "상태 새로고침"')
-    start = source.index('self._button(actions, "전체 시작"')
-    stop = source.index('self._button(actions, "전체 종료"')
-    assert refresh < start < stop
+    action_specs = source[source.index("action_specs = ["):source.index("for label, command, color in action_specs")]
+    labels = ["상태 새로고침", "전체 시작", "서버 전체 종료", "Docker 포함 전체 종료"]
+    positions = [action_specs.index(f'"{label}"') for label in labels]
+    assert positions == sorted(positions)
+    assert "self.stop_all_with_docker" in action_specs
+    assert '"#a32626"' in action_specs
+
+
+def test_server_start_rebuilds_images_and_shutdown_keeps_docker_by_default():
+    source = (ROOT / "tools" / "server_control" / "main.py").read_text(encoding="utf-8")
+
+    assert '["docker", "compose", "up", "-d", "--build", *docker_services]' in source
+    assert 'self._docker("up", "-d", "--build", key' in source
+    assert "stop_project_services(ROOT, self.state_path, SHUTDOWN_LOG)" in source
+    assert "Docker Desktop은 유지합니다." in source
+    assert "stop_project_and_docker(ROOT, self.state_path, SHUTDOWN_LOG)" in source
+    assert "AllStar 이외 실행 중 컨테이너" in source
 
 
 def test_server_control_uses_roomy_default_and_minimum_window_sizes():
@@ -147,3 +160,42 @@ def test_docker_is_started_and_waited_for_when_engine_is_off(tmp_path, monkeypat
     assert lifecycle.ensure_docker_ready(log_path, timeout=10) is True
     assert commands == [["docker", "desktop", "start", "--detach"]]
     assert "Docker Desktop 준비 완료" in log_path.read_text(encoding="utf-8")
+
+
+def test_non_project_container_detection(tmp_path, monkeypatch):
+    class Completed:
+        def __init__(self, stdout=""):
+            self.returncode = 0
+            self.stdout = stdout
+
+    monkeypatch.setattr(lifecycle, "docker_ready", lambda: True)
+
+    def fake_run(command, **_kwargs):
+        if command[:4] == ["docker", "compose", "ps", "-q"]:
+            return Completed("project-id\n")
+        if command[:2] == ["docker", "ps"]:
+            return Completed("project-id\ttotal-api-1\nother-id\tother-project-1\n")
+        raise AssertionError(command)
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
+
+    assert lifecycle.running_non_project_containers(tmp_path) == ["other-project-1"]
+
+
+def test_docker_inclusive_shutdown_stops_project_first(tmp_path, monkeypatch):
+    events = []
+    log_path = tmp_path / "shutdown.log"
+    monkeypatch.setattr(
+        lifecycle,
+        "stop_project_services",
+        lambda root, state_path, path: (events.append("project") or True),
+    )
+    monkeypatch.setattr(
+        lifecycle,
+        "stop_docker_desktop",
+        lambda path: (events.append("docker") or True),
+    )
+
+    assert lifecycle.stop_project_and_docker(tmp_path, tmp_path / "state.json", log_path) is True
+    assert events == ["project", "docker"]
+    assert "Docker 포함 전체 종료 완료" in log_path.read_text(encoding="utf-8")

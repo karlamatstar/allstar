@@ -85,6 +85,54 @@ def stop_docker_desktop(log_path: Path) -> bool:
     return completed.returncode == 0
 
 
+def running_non_project_containers(root: Path) -> list[str]:
+    """현재 프로젝트에 속하지 않은 실행 중 컨테이너 이름을 반환한다."""
+    if not docker_ready():
+        return []
+    try:
+        project = subprocess.run(
+            ["docker", "compose", "ps", "-q"],
+            cwd=root,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW,
+            timeout=15,
+            check=False,
+        )
+        running = subprocess.run(
+            ["docker", "ps", "--no-trunc", "--format", "{{.ID}}\t{{.Names}}"],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    project_ids = {line.strip() for line in (project.stdout or "").splitlines() if line.strip()}
+    others: list[str] = []
+    for line in (running.stdout or "").splitlines():
+        container_id, _, name = line.partition("\t")
+        if container_id and container_id not in project_ids:
+            others.append(name or container_id[:12])
+    return others
+
+
+def stop_project_and_docker(root: Path, state_path: Path, log_path: Path) -> bool:
+    """현재 프로젝트 서비스를 정리한 다음 Docker Desktop까지 종료한다."""
+    project_stopped = stop_project_services(root, state_path, log_path)
+    docker_stopped = stop_docker_desktop(log_path)
+    success = project_stopped and docker_stopped
+    append_shutdown_log(log_path, "Docker 포함 전체 종료 완료" if success else "Docker 포함 전체 종료 중 오류 발생")
+    return success
+
+
 def append_shutdown_log(log_path: Path, message: str) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
