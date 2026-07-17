@@ -314,6 +314,9 @@ class TestTab(tk.Frame):
             command=report_command,
             settings=report_settings,
         )
+        env.setdefault("K6_PROMETHEUS_RW_SERVER_URL", "http://127.0.0.1:9090/api/v1/write")
+        env.setdefault("K6_PROMETHEUS_RW_TREND_STATS", "p(95),p(99),avg,min,max")
+        env["K6_TEST_ID"] = self.report_session.run_id
         execution_command = self.report_session.command_for_execution()
         try:
             self.report_session.start()

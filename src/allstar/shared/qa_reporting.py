@@ -46,8 +46,16 @@ def _append_event(event: dict[str, Any]) -> None:
 
 
 def _metric_value(summary: dict[str, Any], metric: str, key: str) -> float | int | None:
-    values = summary.get("metrics", {}).get(metric, {}).get("values", {})
-    value = values.get(key)
+    metric_data = summary.get("metrics", {}).get(metric, {})
+    if not isinstance(metric_data, dict):
+        return None
+    # K6 1.x의 {"values": {...}} 형식과 K6 2.x의 직접 속성 형식을 모두 지원한다.
+    values = metric_data.get("values", {})
+    value = values.get(key) if isinstance(values, dict) else None
+    if value is None:
+        value = metric_data.get(key)
+    if value is None and key == "rate":
+        value = metric_data.get("value")
     return value if isinstance(value, (int, float)) else None
 
 
@@ -140,6 +148,10 @@ class QAReportSession:
                 self.command[0],
                 "run",
                 f"--summary-export={self.k6_summary_path}",
+                "-o",
+                "experimental-prometheus-rw",
+                "--tag",
+                f"testid={self.run_id}",
                 *self.command[2:],
             ]
         return list(self.command)

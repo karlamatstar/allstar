@@ -1,4 +1,4 @@
-from prometheus_client import REGISTRY, Counter, Histogram, make_asgi_app
+from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 
 from allstar.voc.api.testcase_metrics import VocTestcaseReportCollector
 
@@ -12,6 +12,49 @@ voc_chat_latency = Histogram(
     buckets=(1, 3, 5, 10, 20, 30, 45, 60, 90, 120, 180),
 )
 voc_judge_total = Counter("voc_judge_total", "VOC 최종 Judge 결과", ["status", "profile"])
+voc_judge_verdict_total = Counter(
+    "voc_judge_verdict_total",
+    "VOC 독립 Judge 최종 판정 수",
+    ["verdict", "profile"],
+)
+voc_judge_score = Histogram(
+    "voc_judge_score",
+    "VOC 독립 Judge 총점(0~100)",
+    ["profile"],
+    buckets=(0, 59, 60, 69, 70, 79, 80, 89, 90, 100),
+)
+voc_judge_duration = Histogram(
+    "voc_judge_duration_seconds",
+    "VOC 독립 Judge 처리 시간(초)",
+    ["profile"],
+    buckets=(1, 3, 5, 10, 20, 30, 45, 60, 90, 120),
+)
+voc_chat_last_activity = Gauge(
+    "voc_chat_last_activity_timestamp_seconds",
+    "프로필별 마지막 VOC 채팅 완료 Unix 시간",
+    ["profile"],
+)
+
+
+def initialize_metric_series() -> None:
+    """요청이 없을 때도 A~D 기본 시계열을 노출한다."""
+    for profile in ("A", "B", "C", "D"):
+        for status in ("success", "no_data", "error"):
+            voc_chat_total.labels(status=status, profile=profile)
+        for status in ("success", "error"):
+            voc_judge_total.labels(status=status, profile=profile)
+        for verdict in (
+            "배포 가능",
+            "조건부 배포 가능, 개선 후 재검증",
+            "주요 개선 필요",
+            "배포 보류",
+            "배포 보류(즉시)",
+            "N/A",
+        ):
+            voc_judge_verdict_total.labels(verdict=verdict, profile=profile)
+        voc_chat_latency.labels(profile=profile)
+        voc_judge_score.labels(profile=profile)
+        voc_judge_duration.labels(profile=profile)
 
 # A~D 배치는 짧게 실행되는 별도 프로세스이므로 메모리 Counter를 직접 쓰지 않는다.
 # 계속 실행되는 VOC API가 공유 정식 보고서를 읽어 테스트케이스 지표를 제공한다.

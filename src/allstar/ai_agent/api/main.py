@@ -9,7 +9,17 @@ from fastapi.staticfiles import StaticFiles
 from allstar.ai_agent.api.config import OPENAI_MODEL
 from allstar.ai_agent.api.judge_agent import JudgeUnavailableError, get_evaluation_from_openai
 from allstar.ai_agent.api.logger_config import log_conversation, log_evaluation, logger
-from allstar.ai_agent.api.metrics import chat_request_latency_seconds, chat_requests_total, judge_axis_score, judge_evaluations_total, judge_score_total, metrics_app
+from allstar.ai_agent.api.metrics import (
+    chat_last_activity_timestamp_seconds,
+    chat_request_latency_seconds,
+    chat_requests_total,
+    initialize_metric_series,
+    judge_axis_score,
+    judge_evaluation_duration_seconds,
+    judge_evaluations_total,
+    judge_score_total,
+    metrics_app,
+)
 from allstar.ai_agent.api.rule_based_agent import get_answer_from_rule_based_agent
 from allstar.ai_agent.api.schemas import ChatRequest, ChatResponse, HealthResponse
 from allstar.ai_agent.api.service_agent import ApiAgentUnavailableError, get_answer_from_api_agent
@@ -35,6 +45,7 @@ MODEL_LABELS = {MODEL_API: "실시간-API기반", MODEL_RULE: "실시간-규칙�
 async def lifespan(app: FastAPI):
     # API 키가 없어도 Health, Swagger, 규칙 기반 기능은 실행한다.
     # OpenAI 기능은 실제 호출 시 service_agent와 judge_agent가 키를 검증한다.
+    initialize_metric_series()
     yield
 
 
@@ -117,6 +128,7 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
         judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
         log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
     else:
+        judge_started = time.perf_counter()
         try:
             api_eval = get_evaluation_from_openai(user_question=question, ai_answer=api_answer, agent_label=MODEL_LABELS.get(MODEL_API))
             judge_evaluations_total.labels(decision=api_eval.get("overall_decision", "UNKNOWN"), model=MODEL_API).inc()
@@ -135,10 +147,15 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
             api_eval = _create_na_evaluation(f"실시간 채점 처리 실패: {error}")
             judge_evaluations_total.labels(decision="N/A", model=MODEL_API).inc()
             log_evaluation(question, api_eval, model=MODEL_API, request_id=request_id)
+        finally:
+            judge_evaluation_duration_seconds.labels(model=MODEL_API).observe(
+                time.perf_counter() - judge_started
+            )
 
     mark_evaluating(request_id, 1, "규칙 기반 답변을 독립 평가하고 있습니다.")
 
     # Score Rule
+    judge_started = time.perf_counter()
     try:
         rule_eval = get_evaluation_from_openai(user_question=question, ai_answer=rule_answer, agent_label=MODEL_LABELS.get(MODEL_RULE))
         judge_evaluations_total.labels(decision=rule_eval.get("overall_decision", "UNKNOWN"), model=MODEL_RULE).inc()
@@ -157,6 +174,10 @@ def _score_both_and_check_jira_background(question: str, api_answer: str, rule_a
         rule_eval = _create_na_evaluation(f"실시간 채점 처리 실패: {error}")
         judge_evaluations_total.labels(decision="N/A", model=MODEL_RULE).inc()
         log_evaluation(question, rule_eval, model=MODEL_RULE, request_id=request_id)
+    finally:
+        judge_evaluation_duration_seconds.labels(model=MODEL_RULE).observe(
+            time.perf_counter() - judge_started
+        )
 
     # 두 모델의 채점 로그가 모두 저장된 뒤 최신 보고서를 자동 갱신한다.
     # 이 함수 자체가 FastAPI 백그라운드 작업이므로 사용자 답변 반환을 지연시키지 않는다.
@@ -217,17 +238,18 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatRespons
         answer = "API 서버 응답 시간이 지연되어 타임아웃이 발생했습니다. 트래픽이 많거나 서버에 과부하가 걸렸습니다. (504 Gateway Timeout)"
         rule_answer = get_answer_from_rule_based_agent(request.question)
         latency_ms = (time.perf_counter() - start) * 1000
+        chat_request_latency_seconds.observe(latency_ms / 1000)
         request_id = uuid.uuid4().hex
         log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
         mark_pending(request_id)
         background_tasks.add_task(_score_both_and_check_jira_background, request.question, answer, rule_answer, request_id, False)
+        chat_last_activity_timestamp_seconds.set_to_current_time()
         return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=latency_ms, request_id=request_id)
 
     is_api_error = False
     try:
         answer = get_answer_from_api_agent(request.question, simulate_api_disconnect=request.simulate_api_disconnect)
     except ApiAgentUnavailableError as error:
-        chat_requests_total.labels(status="error").inc()
         logger.error(f"API 끊김 장애 발생: {error}")
         answer = "현재 API 서버 점검 중이거나 일시적인 통신 장애가 발생했습니다. 잠시 후 다시 시도해 주세요. (503 Service Unavailable)"
         is_api_error = True
@@ -236,10 +258,10 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatRespons
     rule_answer = get_answer_from_rule_based_agent(request.question)
 
     latency_ms = (time.perf_counter() - start) * 1000
-    chat_request_latency_seconds.observe(latency_ms / 1000)
-    chat_requests_total.labels(status="success").inc()
-
     if not request.is_latency_test:
+        chat_request_latency_seconds.observe(latency_ms / 1000)
+        chat_requests_total.labels(status="fallback" if is_api_error else "success").inc()
+        chat_last_activity_timestamp_seconds.set_to_current_time()
         request_id = uuid.uuid4().hex
         log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
         mark_pending(request_id)
@@ -269,9 +291,5 @@ async def chat_mock(request: ChatRequest) -> ChatResponse:
 
     latency_ms = (time.perf_counter() - start) * 1000
 
-    # 프로메테우스 지표 수집
-    chat_request_latency_seconds.observe(latency_ms / 1000)
-    chat_requests_total.labels(status="success").inc()
-
-    # Mock 테스트이므로 Background Task(AI Judge 채점)와 로깅은 생략합니다.
+    # Mock 테스트는 K6 자체 지표로 분리한다. 실제 챗봇 운영 지표와 채점·로그에는 포함하지 않는다.
     return ChatResponse(answer=answer, rule_answer=rule_answer, latency_ms=round(latency_ms, 1))

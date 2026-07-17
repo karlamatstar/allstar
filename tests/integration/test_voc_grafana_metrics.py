@@ -9,6 +9,14 @@ SOURCE_DASHBOARD = ROOT / "ops" / "monitoring" / "voc_qa_dashboard.json"
 PROVISIONED_DASHBOARD = (
     ROOT / "ops" / "monitoring" / "grafana" / "provisioning" / "dashboards" / "json" / "voc_qa_dashboard.json"
 )
+LIVE_SOURCE_DASHBOARD = ROOT / "ops" / "monitoring" / "voc_live_dashboard.json"
+LIVE_PROVISIONED_DASHBOARD = (
+    ROOT / "ops" / "monitoring" / "grafana" / "provisioning" / "dashboards" / "json" / "voc_live_dashboard.json"
+)
+K6_SOURCE_DASHBOARD = ROOT / "ops" / "monitoring" / "k6_dashboard.json"
+K6_PROVISIONED_DASHBOARD = (
+    ROOT / "ops" / "monitoring" / "grafana" / "provisioning" / "dashboards" / "json" / "k6_dashboard.json"
+)
 
 
 def test_voc_qa_dashboard_uses_testcase_metrics_only():
@@ -34,3 +42,41 @@ def test_prometheus_uses_persistent_docker_volume():
 
     assert "- prometheus_data:/prometheus" in compose
     assert "volumes:\n  prometheus_data:" in compose
+
+
+def test_voc_live_dashboard_separates_activity_judge_status_and_verdict():
+    source = json.loads(LIVE_SOURCE_DASHBOARD.read_text(encoding="utf-8"))
+    provisioned = json.loads(LIVE_PROVISIONED_DASHBOARD.read_text(encoding="utf-8"))
+
+    assert source == provisioned
+    assert source["version"] == 2
+    assert len(source["panels"]) == 9
+    expressions = "\n".join(
+        target["expr"] for panel in source["panels"] for target in panel.get("targets", [])
+    )
+    assert "voc_chat_last_activity_timestamp_seconds" in expressions
+    assert "voc_judge_verdict_total" in expressions
+    assert "voc_judge_score_sum" in expressions
+    assert "voc_judge_duration_seconds_bucket" in expressions
+
+
+def test_k6_dashboard_matches_prometheus_remote_write_metrics():
+    source = json.loads(K6_SOURCE_DASHBOARD.read_text(encoding="utf-8"))
+    provisioned = json.loads(K6_PROVISIONED_DASHBOARD.read_text(encoding="utf-8"))
+
+    assert source == provisioned
+    assert source["version"] == 2
+    expressions = "\n".join(
+        target["expr"] for panel in source["panels"] for target in panel.get("targets", [])
+    )
+    for metric in (
+        "k6_vus",
+        "k6_http_reqs_total",
+        "k6_http_req_failed_rate",
+        "k6_http_req_duration_p95",
+        "k6_data_received_total",
+        "k6_data_sent_total",
+    ):
+        assert metric in expressions
+    assert all("testid" in target["expr"] or "testid" in target.get("legendFormat", "")
+               for panel in source["panels"] for target in panel.get("targets", []))

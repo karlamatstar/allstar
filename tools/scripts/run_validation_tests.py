@@ -30,12 +30,34 @@ def run_k6():
         message = "[오류] K6 실행 파일을 찾지 못했습니다. RUN/k6.exe를 두거나 K6를 시스템에 설치하세요."
         print(message, flush=True)
         return result_file, message
-    cmd = [k6_bin, "run", f"--summary-export={result_file}", str(script)]
+    test_id = os.getenv("K6_TEST_ID", datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+    cmd = [
+        k6_bin,
+        "run",
+        f"--summary-export={result_file}",
+        "-o",
+        "experimental-prometheus-rw",
+        "--tag",
+        f"testid={test_id}-validation",
+        str(script),
+    ]
+    env = os.environ.copy()
+    env.setdefault("K6_PROMETHEUS_RW_SERVER_URL", "http://127.0.0.1:9090/api/v1/write")
+    env.setdefault("K6_PROMETHEUS_RW_TREND_STATS", "p(95),p(99),avg,min,max")
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NO_WINDOW
 
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=creationflags)
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        env=env,
+        creationflags=creationflags,
+    )
     output_lines = []
     for line in process.stdout:
         print(line, end='', flush=True)

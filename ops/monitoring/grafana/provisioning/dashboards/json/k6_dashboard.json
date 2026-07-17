@@ -1,79 +1,80 @@
 {
-  "title": "K6 Performance Test",
+  "title": "K6 성능 부하 시험 모니터링",
   "uid": "k6-performance-test",
+  "schemaVersion": 39,
+  "version": 2,
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": {"from": "now-6h", "to": "now"},
+  "tags": ["k6", "performance", "load-test"],
+  "templating": {"list": []},
   "panels": [
     {
-      "title": "실시간 접속 유저 수 (VUs)",
+      "id": 1,
+      "title": "실시간 가상 사용자 수 (VUs)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "targets": [
-        {
-          "expr": "sum(k6_vus)",
-          "legendFormat": "VUs"
-        }
-      ]
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "max(k6_vus) by (testid)", "legendFormat": "{{testid}}"}]
     },
     {
+      "id": 2,
       "title": "초당 요청 처리량 (RPS)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(rate(k6_http_reqs_total[30s])) by (testid)", "legendFormat": "{{testid}}"}]
+    },
+    {
+      "id": 3,
+      "title": "HTTP 요청 실패율",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "percent", "min": 0, "max": 100, "color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "#188a4c", "value": null}, {"color": "#c07a12", "value": 5}, {"color": "#c0392b", "value": 20}]}}, "overrides": []},
+      "targets": [{"expr": "100 * avg(k6_http_req_failed_rate) by (testid)", "legendFormat": "{{testid}}"}]
+    },
+    {
+      "id": 4,
+      "title": "누적 실패 요청 수",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(k6_http_reqs_total{expected_response=\"false\"}) by (testid) or (sum(k6_http_reqs_total) by (testid) * 0)", "legendFormat": "{{testid}}"}]
+    },
+    {
+      "id": 5,
+      "title": "p95 응답시간",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "description": "K6 Prometheus 출력의 시간 단위는 초입니다.",
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "avg(k6_http_req_duration_p95) by (testid)", "legendFormat": "{{testid}}"}]
+    },
+    {
+      "id": 6,
+      "title": "네트워크 통신량",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "Bps", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
       "targets": [
-        {
-          "expr": "sum(rate(k6_http_reqs_total[10s]))",
-          "legendFormat": "RPS"
-        }
+        {"expr": "sum(rate(k6_data_received_total[30s])) by (testid)", "legendFormat": "{{testid}} · 수신"},
+        {"expr": "sum(rate(k6_data_sent_total[30s])) by (testid)", "legendFormat": "{{testid}} · 송신"}
       ]
     },
     {
-      "title": "순간 에러 발생 개수 (타임아웃 오류'60초')",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "targets": [
-        {
-          "expr": "sum(increase(k6_http_reqs_total{expected_response=\"false\"}[10s])) or (sum(increase(k6_http_reqs_total[10s])) * 0)",
-          "legendFormat": "Errors (per 10s)"
-        }
-      ]
-    },
-    {
-      "title": "총 누적 에러 개수 (타임아웃 오류'60초')",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "targets": [
-        {
-          "expr": "sum(k6_http_reqs_total{expected_response=\"false\"}) or (sum(k6_http_reqs_total) * 0)",
-          "legendFormat": "Total Errors"
-        }
-      ]
-    },
-    {
-      "title": "응답 지연 시간 (상위 5%)",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "targets": [
-        {
-          "expr": "avg(k6_http_req_duration_p95) and sum(rate(k6_http_reqs_total[10s])) > 0",
-          "legendFormat": "p95 Latency (ms)"
-        }
-      ]
-    },
-    {
-      "title": "네트워크 트래픽 (초당 통신량)",
-      "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "targets": [
-        {
-          "expr": "sum(rate(k6_data_received_total[10s]))",
-          "legendFormat": "Received (Bytes/s)"
-        },
-        {
-          "expr": "sum(rate(k6_data_sent_total[10s]))",
-          "legendFormat": "Sent (Bytes/s)"
-        }
-      ]
+      "id": 7,
+      "title": "시험별 누적 요청 수",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(k6_http_reqs_total) by (testid)", "legendFormat": "{{testid}}", "instant": true}]
     }
-  ],
-  "schemaVersion": 36,
-  "timezone": "browser",
-  "refresh": "5s"
+  ]
 }

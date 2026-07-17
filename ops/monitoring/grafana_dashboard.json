@@ -1,8 +1,8 @@
 {
-  "title": "AI Agent 발표용 운영 모니터링",
+  "title": "AI 에이전트 실시간 운영 모니터링",
   "uid": "ai-agent-quality",
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "refresh": "15s",
   "time": { "from": "now-30m", "to": "now" },
   "graphTooltip": 1,
@@ -239,45 +239,45 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(judge_evaluations_total[5m]) * 300) by (decision, model)",
+          "expr": "sum(increase(judge_evaluations_total[30m])) by (decision, model)",
           "legendFormat": "{{model}} - {{decision}}"
         }
       ]
     },
     {
       "id": 18,
-      "title": "6-1. 폴백 발생률 (Fallback Rate)",
-      "type": "timeseries",
+      "title": "6-1. 마지막 실제 채팅 후 경과시간",
+      "type": "stat",
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "description": "전체 요청 중 status=\"fallback\"으로 처리된 요청 비율입니다.",
+      "description": "K6·지연 시험을 제외한 마지막 실제 AI 에이전트 채팅 이후 경과시간입니다.",
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "fixed", "fixedColor": "#f59e0b" },
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 16,
-            "gradientMode": "opacity",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "showPoints": "never",
-            "stacking": { "group": "A", "mode": "none" },
-            "thresholdsStyle": { "mode": "off" }
-          },
+          "color": { "mode": "thresholds" },
           "min": 0,
-          "max": 100,
-          "unit": "percent"
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "#188a4c", "value": null },
+              { "color": "#c07a12", "value": 1800 },
+              { "color": "#6b7280", "value": 3600 }
+            ]
+          }
         },
         "overrides": []
       },
       "options": {
-        "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true },
-        "tooltip": { "mode": "single", "sort": "none" }
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
       },
       "targets": [
         {
-          "expr": "100 * (sum(rate(chat_requests_total{status=\"fallback\"}[1m])) or vector(0)) / clamp_min(sum(rate(chat_requests_total[1m])), 0.000001)",
-          "legendFormat": "fallback rate"
+          "expr": "time() - chat_last_activity_timestamp_seconds",
+          "legendFormat": "마지막 실제 채팅"
         }
       ]
     },
@@ -568,7 +568,7 @@
       "options": { "cellHeight": "sm", "footer": { "countRows": false, "fields": "", "reducer": ["sum"], "show": false }, "showHeader": true },
       "targets": [
         {
-          "expr": "chat_requests_total or chat_request_latency_seconds_count or chat_request_latency_seconds_sum or agent_retry_total or agent_unavailable_total or judge_evaluations_total or judge_score_total_count or judge_score_total_sum or judge_axis_score_count or judge_axis_score_sum or judge_evaluation_duration_seconds_count or judge_evaluation_duration_seconds_sum",
+          "expr": "chat_requests_total or chat_request_latency_seconds_count or chat_request_latency_seconds_sum or chat_last_activity_timestamp_seconds or agent_retry_total or agent_unavailable_total or judge_evaluations_total or judge_score_total_count or judge_score_total_sum or judge_axis_score_count or judge_axis_score_sum or judge_evaluation_duration_seconds_count or judge_evaluation_duration_seconds_sum",
           "format": "table",
           "instant": true
         }

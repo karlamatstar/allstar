@@ -27,9 +27,9 @@ def test_top_navigation_has_four_left_and_two_right_tabs():
 def test_monitoring_has_four_grafana_child_tabs():
     assert "?orgId=1&kiosk" in VIEWS
     for label in (
-        "AI 상담 실시간 운영",
+        "AI 에이전트 실시간 운영",
         "K6 성능 부하 시험",
-        "VOC 실시간 운영",
+        "VOC 챗봇 실시간 운영",
         "VOC QA·A~D 비교",
     ):
         assert label in VIEWS

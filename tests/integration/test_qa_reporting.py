@@ -52,6 +52,8 @@ def test_k6_summary_metrics_are_written_to_report(monkeypatch, tmp_path):
     )
     session.start()
     assert session.command_for_execution()[2].startswith("--summary-export=")
+    assert "experimental-prometheus-rw" in session.command_for_execution()
+    assert f"testid={session.run_id}" in session.command_for_execution()
     session.k6_summary_path.write_text(json.dumps({
         "metrics": {
             "http_reqs": {"values": {"count": 120}},
@@ -66,6 +68,29 @@ def test_k6_summary_metrics_are_written_to_report(monkeypatch, tmp_path):
     report = session.report_path.read_text(encoding="utf-8")
     assert "요청 실패율: 2.500%" in report
     assert "p95 응답시간: 240.800ms" in report
+
+
+def test_k6_v2_summary_metrics_are_parsed(monkeypatch, tmp_path):
+    configure_output_roots(monkeypatch, tmp_path)
+    session = qa_reporting.QAReportSession(
+        "ai_random", "무작위 요청 시험", ["k6", "run", "random_test.js"]
+    )
+    session.start()
+    session.k6_summary_path.write_text(json.dumps({
+        "metrics": {
+            "http_reqs": {"count": 1558, "rate": 24.9},
+            "http_req_failed": {"passes": 0, "fails": 1558, "value": 0},
+            "http_req_duration": {"avg": 1507.0, "p(95)": 1526.9},
+            "checks": {"passes": 1558, "fails": 0, "value": 1},
+        }
+    }), encoding="utf-8")
+
+    result = session.finish("completed", 0)
+
+    assert result["metrics"]["request_count"] == 1558
+    assert result["metrics"]["failure_rate"] == 0
+    assert result["metrics"]["response_time_p95_ms"] == 1526.9
+    assert result["metrics"]["checks_passed"] == 1558
 
 
 def test_latest_manifest_points_to_accumulated_source_log(monkeypatch, tmp_path):

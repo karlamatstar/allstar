@@ -12,6 +12,7 @@ def test_chat_returns_answer_for_valid_question(monkeypatch):
         "get_answer_from_api_agent",
         lambda question, simulate_api_disconnect=False: "이 교육과정은 총 320시간입니다.",
     )
+    before = main_module.chat_requests_total.labels(status="success")._value.get()
     response = client.post(
         "/chat",
         json={"question": "이 교육과정은 총 몇 시간인가요?", "is_latency_test": True},
@@ -23,6 +24,28 @@ def test_chat_returns_answer_for_valid_question(monkeypatch):
     # 비교용 규칙 기반 답변도 함께 반환된다
     assert body["rule_answer"].strip() != ""
     assert "320시간" in body["rule_answer"]
+    assert main_module.chat_requests_total.labels(status="success")._value.get() == before
+
+
+def test_api_unavailable_is_counted_once_as_fallback(monkeypatch):
+    def unavailable(*_args, **_kwargs):
+        raise main_module.ApiAgentUnavailableError("연결 실패")
+
+    monkeypatch.setattr(main_module, "get_answer_from_api_agent", unavailable)
+    monkeypatch.setattr(main_module, "log_conversation", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "mark_pending", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(main_module, "_score_both_and_check_jira_background", lambda *_args, **_kwargs: None)
+    before = {
+        status: main_module.chat_requests_total.labels(status=status)._value.get()
+        for status in ("success", "error", "fallback")
+    }
+
+    response = client.post("/chat", json={"question": "연결 상태를 확인해 주세요"})
+
+    assert response.status_code == 200
+    assert main_module.chat_requests_total.labels(status="fallback")._value.get() == before["fallback"] + 1
+    assert main_module.chat_requests_total.labels(status="success")._value.get() == before["success"]
+    assert main_module.chat_requests_total.labels(status="error")._value.get() == before["error"]
 
 
 def test_chat_rejects_empty_question():
@@ -59,6 +82,17 @@ def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):
     monkeypatch.setattr(main_module, "mark_completed", lambda request_id, summary: events.append(("status", "completed")))
     monkeypatch.setattr(main_module, "mark_failed", lambda request_id, error: events.append(("status", "failed")))
 
+    def duration_count(model):
+        main_module.judge_evaluation_duration_seconds.labels(model=model)
+        return next(
+            sample.value
+            for metric in main_module.judge_evaluation_duration_seconds.collect()
+            for sample in metric.samples
+            if sample.name == "judge_evaluation_duration_seconds_count"
+            and sample.labels.get("model") == model
+        )
+
+    duration_before = {model: duration_count(model) for model in ("api", "rule")}
     main_module._score_both_and_check_jira_background(
         "질문", "API 답변", "규칙 답변", "request-1"
     )
@@ -68,3 +102,5 @@ def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):
     assert events.index(("log", "api", "request-1")) < events.index(("log", "rule", "request-1"))
     assert ("refresh",) in events
     assert events[-1] == ("status", "completed")
+    for model in ("api", "rule"):
+        assert duration_count(model) == duration_before[model] + 1

@@ -107,22 +107,25 @@
 
 ## 6. 모니터링 화면 완성
 
-상태: **Grafana 4개 하위 탭과 VOC JSON 2개 구현, VOC A~D 실데이터·영구 보존 검증 완료**
+상태: **Grafana 4개 하위 탭·AI/K6/VOC 지표 분리·K6 실시간 전송·VOC A~D 영구 보존 검증 완료**
 
 구현 완료:
 
 - 통합 대시보드에 상위 `모니터링` 탭을 두고 선택 시 바로 Grafana 4개 하위 탭 표시
-- 기존 AI 상담 실시간 운영·K6 성능 부하 시험 Grafana 2개 임베드
-- VOC 실시간 운영·VOC QA·A~D 비교 Grafana JSON 2개 작성 및 임베드
+- AI 에이전트 실시간 운영·K6 성능 부하 시험 Grafana 2개 임베드
+- VOC 챗봇 실시간 운영·VOC QA·A~D 비교 Grafana JSON 2개 작성 및 임베드
 - A~D 정식 보고서 기반 평균 점수·판정 분포·처리시간·항목별 달성률·케이스별 결과 비교
 - Prometheus `prometheus_data` 영구 볼륨과 재시작 전 시계열 보존 검증
 - VOC 실시간 Judge 판정과 A~D 테스트케이스 판정 분포 패널
+- K6 2.1 Prometheus remote write·p95·실행별 `testid`와 종료 보고서 파서 호환
+- AI 실제 채팅과 K6·지연 시험 지표 분리, Judge 채점시간·마지막 활동 지표
+- VOC 요청 상태와 Judge 처리 상태·최종 판정·100점·Judge 시간 분리
 - 브라우저 테마 동기화와 값 없는 `kiosk` 전체화면 표시
 
 남은 작업:
 
 - 에이전트별 처리시간·오류율과 검색 결과 0건을 Prometheus 개별 지표로 추가
-- API 실패 세부 분포와 통합 Streamlit 핵심 운영 요약 보강
+- VOC API 실패 원인 세부 분포와 통합 Streamlit 핵심 운영 요약 보강
 - AWS 배포 전 Prometheus 장기 보존 기간·접근 권한·알림 정책 검토
 
 총 4개 화면의 탭 이름, UID, 빈 상태 및 완료 기준은 `INTEGRATED_GRAFANA_DASHBOARD_REQUIREMENTS.md`를 따른다.

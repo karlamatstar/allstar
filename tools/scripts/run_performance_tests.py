@@ -48,12 +48,28 @@ def run_k6_performance(k6_bin, script_path, target_host, results_dir, on_line=No
         phase_paths.append(phase_path)
 
         emit(f"\n▶ {index + 1}단계 시작: 가상 사용자 {vus}명 동시 요청\n")
-        cmd = [str(k6_bin), "run", f"--out=json={phase_path}", str(script_path)]
+        test_id = os.getenv("K6_TEST_ID", datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+        cmd = [
+            str(k6_bin),
+            "run",
+            f"--out=json={phase_path}",
+            "-o",
+            "experimental-prometheus-rw",
+            "--tag",
+            f"testid={test_id}-{phase_id}",
+            str(script_path),
+        ]
         env = os.environ.copy()
         env.update({
             "TARGET_IP": target_host,
             "PHASE_ID": phase_id,
             "PHASE_VUS": str(vus),
+            "K6_PROMETHEUS_RW_SERVER_URL": env.get(
+                "K6_PROMETHEUS_RW_SERVER_URL", "http://127.0.0.1:9090/api/v1/write"
+            ),
+            "K6_PROMETHEUS_RW_TREND_STATS": env.get(
+                "K6_PROMETHEUS_RW_TREND_STATS", "p(95),p(99),avg,min,max"
+            ),
         })
         process = subprocess.Popen(
             cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

@@ -13,7 +13,17 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 
 from allstar.shared.model_profiles import get_profile, missing_keys, public_profiles
 from allstar.voc.api import judge, log_store
-from allstar.voc.api.metrics import metrics_app, voc_chat_latency, voc_chat_total, voc_judge_total
+from allstar.voc.api.metrics import (
+    initialize_metric_series,
+    metrics_app,
+    voc_chat_last_activity,
+    voc_chat_latency,
+    voc_chat_total,
+    voc_judge_duration,
+    voc_judge_score,
+    voc_judge_total,
+    voc_judge_verdict_total,
+)
 from allstar.voc.api.report_generator import generate_live_report
 from allstar.voc.api.runtime import PipelineRunner
 from allstar.voc.api.schemas import ChatAccepted, ChatRequest, JobStatus
@@ -31,6 +41,7 @@ from allstar.voc.evaluation.progress import (
 load_dotenv()
 app = FastAPI(title="VOC HTTP Gateway", version="0.1.0")
 app.mount("/metrics", metrics_app)
+initialize_metric_series()
 
 _runner = PipelineRunner()
 _jobs: dict[str, dict] = {}
@@ -57,6 +68,13 @@ def _endpoint_open(endpoint: str) -> bool:
             return True
     except OSError:
         return False
+
+
+def _record_chat_metrics(profile_id: str, status: str, elapsed_seconds: float) -> None:
+    """한 VOC 요청의 최종 상태·처리시간·마지막 활동 시각을 한 번만 기록한다."""
+    voc_chat_total.labels(status=status, profile=profile_id).inc()
+    voc_chat_latency.labels(profile=profile_id).observe(elapsed_seconds)
+    voc_chat_last_activity.labels(profile=profile_id).set_to_current_time()
 
 
 async def _execute(request_id: str, request: ChatRequest) -> None:
@@ -102,8 +120,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
                 })
             finish_case(request_id, LIVE_CASE_ID, "no_data")
             finish_progress(request_id, "no_data")
-            voc_chat_total.labels(status="no_data", profile=profile.profile_id).inc()
-            voc_chat_latency.labels(profile=profile.profile_id).observe(pipeline_elapsed)
+            _record_chat_metrics(profile.profile_id, "no_data", pipeline_elapsed)
             return
 
         if not result.get("ok"):
@@ -115,6 +132,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
 
         judge_result = None
         judge_error = None
+        judge_started = time.perf_counter()
         try:
             judge_result = await judge.evaluate(
                 request.question,
@@ -124,6 +142,11 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
             )
             set_stage(request_id, LIVE_CASE_ID, 7, "done", "9항목·100점 독립 채점 완료")
             voc_judge_total.labels(status="success", profile=profile.profile_id).inc()
+            verdict = str(judge_result.get("verdict") or "N/A")
+            voc_judge_verdict_total.labels(verdict=verdict, profile=profile.profile_id).inc()
+            total_score = judge_result.get("total")
+            if isinstance(total_score, (int, float)):
+                voc_judge_score.labels(profile=profile.profile_id).observe(total_score)
             log_store.judgment({
                 "schema_version": 2,
                 "request_id": request_id,
@@ -136,6 +159,11 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
             judge_error = str(error)
             set_stage(request_id, LIVE_CASE_ID, 7, "failed", f"독립 채점 실패: {judge_error}")
             voc_judge_total.labels(status="error", profile=profile.profile_id).inc()
+            voc_judge_verdict_total.labels(verdict="N/A", profile=profile.profile_id).inc()
+        finally:
+            voc_judge_duration.labels(profile=profile.profile_id).observe(
+                time.perf_counter() - judge_started
+            )
 
         elapsed = round(time.perf_counter() - started, 3)
         async with _jobs_lock:
@@ -147,8 +175,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
                 "judge": judge_result,
                 "error": f"Judge 실패: {judge_error}" if judge_error else None,
             })
-        voc_chat_total.labels(status="success", profile=profile.profile_id).inc()
-        voc_chat_latency.labels(profile=profile.profile_id).observe(elapsed)
+        _record_chat_metrics(profile.profile_id, "success", elapsed)
         finish_case(request_id, LIVE_CASE_ID, "completed")
         finish_progress(request_id, "completed")
     except Exception as error:
@@ -163,7 +190,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
                 "elapsed_seconds": elapsed,
                 "error": str(error),
             })
-        voc_chat_total.labels(status="error", profile=profile.profile_id).inc()
+        _record_chat_metrics(profile.profile_id, "error", elapsed)
     finally:
         async with _jobs_lock:
             row = dict(_jobs[request_id])

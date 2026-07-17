@@ -35,6 +35,7 @@ _OUTPUT/reports/manifests/qa/latest.json
 - `latest_report.md`는 시험 종류와 관계없이 가장 마지막에 끝난 QA 실행 요약으로 덮어쓴다.
 - manifest는 시험별 최신본과 전체 최신본만 유지한다. 대시보드는 폴더나 파일명을 추측하지 않고 manifest의 `sources`와 `report`를 읽는다.
 - VOC A~D 실행 요약은 해당 프로필의 정식 `quality_score_report.md`를 함께 연결한다.
+- 단계별 성능·장애 시험이 사용하는 `ops/performance/results/`는 로컬 중간 산출물이므로 Git에서 제외하고, 정식 누적 로그와 최신 보고서는 `_OUTPUT` 규칙을 따른다.
 
 ## 공통 기록 항목
 
@@ -62,6 +63,8 @@ k6 요약이 존재하면 다음 값을 보고서와 manifest에 기록한다.
 - 평균 응답시간
 - p95 응답시간
 - 검사 성공·실패 수
+
+K6 1.x 종료 JSON의 `metrics.*.values` 구조와 K6 2.x의 `metrics.*` 직접 속성 구조를 모두 지원한다. 종료 요약 파일은 보고서 생성용 집계 자료이고, Grafana 실시간 그래프는 별도 `experimental-prometheus-rw` 출력으로 Prometheus에 전송한다. 두 출력은 동시에 사용하며 실행별 `testid`로 시계열을 구분한다.
 
 pytest 출력이 존재하면 통과·실패·오류·제외·선택 제외 건수를 기록한다. 별도 수치가 없는 시험도 실행 상태, 실행시간, 종료 코드와 원문 로그를 반드시 남긴다.
 

@@ -1220,18 +1220,24 @@ def render_monitoring() -> None:
     _section("모니터링", "상위 모니터링 탭 아래에서 Grafana 화면 4개를 바로 확인합니다.")
     grafana_ready = bool(_get_json(f"{GRAFANA}/api/health"))
     dashboards = [
-        ("AI 상담 실시간 운영", "ai-agent-quality"),
+        ("AI 에이전트 실시간 운영", "ai-agent-quality"),
         ("K6 성능 부하 시험", "k6-performance-test"),
-        ("VOC 실시간 운영", "voc-live-operations"),
+        ("VOC 챗봇 실시간 운영", "voc-live-operations"),
         ("VOC QA·A~D 비교", "voc-qa-abcd"),
     ]
+    empty_guides = {
+        "ai-agent-quality": "실제 챗봇 요청과 백그라운드 채점이 완료되면 운영·Judge 지표가 갱신됩니다.",
+        "k6-performance-test": "K6 시험 실행 중 수집된 지표가 시험별 식별자로 구분되어 표시됩니다.",
+        "voc-live-operations": "VOC 챗봇 요청이 없을 때는 누적 값과 마지막 활동 시각으로 수집 상태를 구분할 수 있습니다.",
+        "voc-qa-abcd": "A~D 정식 테스트케이스 보고서의 최신 결과를 읽어 비교합니다.",
+    }
     tabs = st.tabs([name for name, _uid in dashboards])
     for tab, (name, uid) in zip(tabs, dashboards):
         with tab:
             url = f"{GRAFANA}/d/{uid}?orgId=1&kiosk"
             st.link_button(f"{name} 새 창에서 열기", url)
             if grafana_ready:
-                st.caption("아직 수집된 데이터가 없으면 Grafana 패널에 데이터 없음으로 표시됩니다.")
+                st.caption(empty_guides[uid])
                 components.iframe(url, height=_grafana_embed_height(uid), scrolling=False)
             else:
                 st.warning("운영 상태 화면(Grafana)이 중지되어 있습니다. AllStar 서버 관리에서 Grafana를 먼저 시작하세요.")

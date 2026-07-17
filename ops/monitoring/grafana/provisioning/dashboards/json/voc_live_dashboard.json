@@ -1,16 +1,95 @@
 {
-  "title": "VOC 실시간 운영",
+  "title": "VOC 챗봇 실시간 운영 모니터링",
   "uid": "voc-live-operations",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
-  "time": {"from": "now-30m", "to": "now"},
+  "time": {"from": "now-6h", "to": "now"},
   "tags": ["voc", "live", "operations"],
   "templating": {"list": []},
   "panels": [
-    {"id": 1, "title": "프로필별 VOC 요청 처리량", "type": "timeseries", "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "sum(rate(voc_chat_requests_total[1m])) by (profile, status)", "legendFormat": "{{profile}} · {{status}}"}]},
-    {"id": 2, "title": "프로필별 p95 처리시간", "type": "timeseries", "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "histogram_quantile(0.95, sum(rate(voc_chat_latency_seconds_bucket[5m])) by (le, profile))", "legendFormat": "{{profile}} p95"}]},
-    {"id": 3, "title": "VOC 독립 품질 평가 결과", "type": "timeseries", "gridPos": {"h": 9, "w": 12, "x": 0, "y": 9}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []}, "targets": [{"expr": "sum(increase(voc_judge_total[30m])) by (profile, status)", "legendFormat": "{{profile}} · {{status}}"}]},
-    {"id": 4, "title": "최근 30분 VOC 요청 수", "type": "stat", "gridPos": {"h": 9, "w": 12, "x": 12, "y": 9}, "datasource": {"type": "prometheus", "uid": "prometheus"}, "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}}, "overrides": []}, "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}}, "targets": [{"expr": "sum(increase(voc_chat_requests_total[30m])) or vector(0)", "legendFormat": "전체"}]}
+    {
+      "id": 1,
+      "title": "프로필별 VOC 요청 처리량",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "reqps", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(rate(voc_chat_requests_total[5m])) by (profile, status)", "legendFormat": "{{profile}} · {{status}}"}]
+    },
+    {
+      "id": 2,
+      "title": "프로필별 p95 전체 처리시간",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(voc_chat_latency_seconds_bucket[30m])) by (le, profile))", "legendFormat": "{{profile}} p95"}]
+    },
+    {
+      "id": 3,
+      "title": "최근 30분 VOC 요청 수",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "thresholds"}}, "overrides": []},
+      "options": {"colorMode": "background", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{"expr": "round(sum(increase(voc_chat_requests_total[30m]))) or vector(0)", "legendFormat": "전체"}]
+    },
+    {
+      "id": 4,
+      "title": "프로필·상태별 누적 요청 수",
+      "type": "barchart",
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(voc_chat_requests_total) by (profile, status)", "legendFormat": "{{profile}} · {{status}}", "instant": true}]
+    },
+    {
+      "id": 5,
+      "title": "프로필별 마지막 채팅 후 경과시간",
+      "type": "stat",
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 9},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
+      "targets": [{"expr": "time() - voc_chat_last_activity_timestamp_seconds", "legendFormat": "프로필 {{profile}}", "instant": true}]
+    },
+    {
+      "id": 6,
+      "title": "독립 Judge 처리 상태",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 8, "x": 0, "y": 17},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(voc_judge_total[30m])) by (profile, status)", "legendFormat": "{{profile}} · {{status}}"}]
+    },
+    {
+      "id": 7,
+      "title": "독립 Judge 최종 판정 분포",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 16, "x": 8, "y": 17},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(increase(voc_judge_verdict_total[30m])) by (profile, verdict)", "legendFormat": "{{profile}} · {{verdict}}"}]
+    },
+    {
+      "id": 8,
+      "title": "프로필별 최근 Judge 평균 점수",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "min": 0, "max": 100, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "sum(rate(voc_judge_score_sum[30m])) by (profile) / clamp_min(sum(rate(voc_judge_score_count[30m])) by (profile), 0.000001)", "legendFormat": "프로필 {{profile}}"}]
+    },
+    {
+      "id": 9,
+      "title": "프로필별 Judge p95 처리시간",
+      "type": "timeseries",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 26},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "targets": [{"expr": "histogram_quantile(0.95, sum(rate(voc_judge_duration_seconds_bucket[30m])) by (le, profile))", "legendFormat": "프로필 {{profile}} p95"}]
+    }
   ]
 }

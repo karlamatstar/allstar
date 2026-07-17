@@ -18,3 +18,4 @@ _OUTPUT/**/*.png
 
 grafana-data/
 prometheus-data/
+ops/performance/results/
