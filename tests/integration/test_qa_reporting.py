@@ -107,7 +107,7 @@ def test_voc_profile_runner_rejects_unrated_judge_report(tmp_path):
     assert runner.judge_report_failed(report) is True
 
 
-def test_voc_profile_runner_uses_one_process_for_two_cases(tmp_path):
+def test_voc_profile_runner_uses_one_process_for_all_cases_by_default(tmp_path):
     runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
     spec = importlib.util.spec_from_file_location("run_voc_profile_single", runner_path)
     assert spec and spec.loader
@@ -116,10 +116,26 @@ def test_voc_profile_runner_uses_one_process_for_two_cases(tmp_path):
 
     command = runner.build_judge_command(tmp_path / "reports")
 
-    assert command.count("--case-id") == 2
+    all_cases = runner.resolve_case_ids()
+    assert len(all_cases) > 2
+    assert command.count("--case-id") == len(all_cases)
     assert command[command.index("--case-id") + 1] == "TC-01"
-    assert "TC-02" in command
+    assert all(case_id in command for case_id in all_cases)
     assert command.count("--output-dir") == 1
+
+
+def test_voc_profile_runner_can_limit_agent_validation_to_two_cases(tmp_path):
+    runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
+    spec = importlib.util.spec_from_file_location("run_voc_profile_limited", runner_path)
+    assert spec and spec.loader
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+
+    command = runner.build_judge_command(tmp_path / "reports", ["TC-01", "TC-02"])
+
+    assert command.count("--case-id") == 2
+    assert "TC-01" in command
+    assert "TC-02" in command
 
 
 def test_voc_execution_summary_links_formal_profile_report(monkeypatch, tmp_path):

@@ -23,11 +23,15 @@
 6. `QA_REPORT_AUTOMATION.md`
    - QA 누적 로그, 최신 보고서 덮어쓰기, manifest와 실제 대표 검증 결과
 7. `VOC_TESTCASE_REPORT_AUTOMATION.md`
-   - TC-01·TC-02 단일 실행, A~D 정식 보고서, 로그 기반 표·그래프와 종합 비교 기준
+   - GUI 전체 테스트케이스 실행, Codex 대표 2건 검증, A~D 정식 보고서와 로그 기반 표·그래프·종합 비교 기준
 8. `AI_AGENT_LIVE_REPORT_AUTOMATION.md`
    - 매 채팅 백그라운드 채점, 누적 로그, 최신 보고서·표·PNG 그래프 자동 갱신 기준
-9. `INTEGRATED_REPORT_DASHBOARD_REQUIREMENTS.md`
+9. `INTEGRATED_DASHBOARD_STRUCTURE_REQUIREMENTS.md`
+   - 왼쪽 4개·오른쪽 2개 상위 탭, AI·VOC 챗봇, 테스트케이스와 7단계 상세를 포함한 전체 화면 기준
+10. `INTEGRATED_REPORT_DASHBOARD_REQUIREMENTS.md`
    - 기존 포트폴리오 보고서 4개 보존과 VOC 보고서 2개 추가를 포함한 통합 보고서 6개 탭 요구사항
+11. `INTEGRATED_GRAFANA_DASHBOARD_REQUIREMENTS.md`
+   - 상위 모니터링 탭 아래 기존 AI 상담·K6 2개와 VOC 신규 2개를 바로 표시하는 총 4개 하위 탭 요구사항
 
 ## 현재 상태
 
@@ -38,5 +42,7 @@
 - 승인된 A 프로필 대표 2건의 생성 파이프라인 실행 완료
 - Anthropic 인증 오류로 독립 평가는 재검증 필요
 - AI Agent 실시간 채팅의 채점 완료 후 최신 보고서 자동 갱신과 데이터 기반 PNG 그래프 적용 완료
+- 통합 Grafana 4개 하위 탭은 요구사항 문서화 완료, 실제 화면과 VOC Grafana JSON은 미구현
+- 통합 대시보드의 왼쪽 4개·오른쪽 2개 상위 탭과 테스트케이스 상세 구조는 문서화 완료, 실제 화면은 미구현
 
 구현과 문서가 다르면 `PROJECT_DIRECTORY_STRUCTURE.md`와 실제 코드를 우선 함께 수정한다.

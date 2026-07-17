@@ -135,6 +135,18 @@ def test_gui_descriptions_do_not_expose_report_folder_paths():
     assert "완료 후 프로필별 보고서가 자동 생성됩니다" in source
 
 
+def test_voc_profile_gui_uses_all_registered_cases():
+    total_cases, api_cases = qa_control.load_voc_case_counts()
+    source = QA_CONTROL_PATH.read_text(encoding="utf-8")
+
+    assert total_cases == 20
+    assert api_cases == 18
+    assert "등록된 VOC 테스트케이스 전체" in qa_control.VOC_PROFILE_DESCRIPTION
+    assert '"전체 테스트케이스": total_cases' in source
+    assert '"실제 AI 평가 대상": api_cases' in source
+    assert "대표 사례 2건만 실행합니다" not in source
+
+
 def test_global_execution_lock_updates_all_tab_buttons():
     app = qa_control.QAControl()
     app.withdraw()

@@ -250,7 +250,7 @@ Docker와 Windows 호스트에서 경로가 달라질 수 있으므로 환경변
 - Streamlit 화면과 Server·QA Control Center가 새 경로에서 실행되어야 한다.
 - `_OUTPUT/logs/`와 `_OUTPUT/reports/` 밖에 실행 산출물이 생성되지 않아야 한다.
 - 기존 A~D 프로필, 보고서 형식, 로그 필드가 구조 개편 때문에 달라지지 않아야 한다.
-- 실제 AI API 테스트는 대표 케이스 2개 제한을 유지하며 별도 승인 전에는 실행하지 않는다.
+- GUI·대시보드의 사용자 직접 실행은 등록된 전체 테스트케이스를 사용한다. Codex의 개발·검증 실행은 대표 케이스 2개 제한을 유지하며 전체 실행을 명시적으로 지시받기 전에는 확대하지 않는다.
 
 ## 10. 구현 상태 체크리스트
 
@@ -263,8 +263,8 @@ Docker와 Windows 호스트에서 경로가 달라질 수 있으므로 환경변
 - [x] `tools/`, `ops/`, `tests/` 실제 재배치
 - [x] Docker·GUI·Streamlit 실행 경로 수정
 - [x] 비AI 회귀 테스트
-- [ ] 대표 2건 실제 API 검증
+- [ ] Codex 검증용 대표 2건 실제 API 확인
 
 ## 11. 이번 구조 전환의 검증 범위
 
-폴더 이동, `allstar.*` import 전환, Docker Compose·GUI·Streamlit 경로 수정, Python 문법 검사와 비AI 회귀 테스트를 수행했다. Docker 구성 파일은 검증했으며 실제 AI API 호출은 비용과 호출 제한 때문에 실행하지 않았다. 대표 2건 API 검증은 QA GUI에서 별도로 승인 후 수행한다.
+폴더 이동, `allstar.*` import 전환, Docker Compose·GUI·Streamlit 경로 수정, Python 문법 검사와 비AI 회귀 테스트를 수행했다. Docker 구성 파일은 검증했으며 실제 AI API 호출은 비용과 호출 제한 때문에 실행하지 않았다. Codex의 대표 2건 API 검증은 대상 사례와 호출 범위를 별도로 확인한 뒤 수행한다.

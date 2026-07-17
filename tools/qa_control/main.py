@@ -24,6 +24,7 @@ LOG_DIR = ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 RUN_LOG = LOG_DIR / "qa_control_runs.jsonl"
 RUN_LOG_LOCK = threading.Lock()
+VOC_TEST_CASES_PATH = ROOT / "src" / "allstar" / "voc" / "evaluation" / "test_cases.json"
 
 AI_TESTS = [
     ("기본 동작 시험 (Smoke Test)", ["k6", "run", "ops/performance/smoke_test.js"], False),
@@ -115,7 +116,7 @@ VOC_UNIT_DESCRIPTION = (
 )
 
 VOC_PROFILE_DESCRIPTION = (
-    "동일한 대표 사례 2건을 선택한 A~D 모델 조합으로 실행해 답변 생성과 독립 품질 평가를 함께 확인합니다.\n"
+    "등록된 VOC 테스트케이스 전체를 선택한 A~D 모델 조합으로 실행해 답변 생성과 독립 품질 평가를 함께 확인합니다.\n"
     "멀티 에이전트 처리 과정, 최종 답변, 평가 결과를 기록하며 완료 후 프로필별 보고서가 자동 생성됩니다."
 )
 
@@ -133,6 +134,15 @@ def two_line_tab_label(title: str) -> str:
         korean, parenthesized = title.rsplit(" (", 1)
         return f"{korean}\n({parenthesized}"
     return title
+
+
+def load_voc_case_counts() -> tuple[int, int]:
+    """현재 VOC 테스트케이스 전체 수와 실제 LLM 평가 대상 수를 반환한다."""
+    try:
+        cases = json.loads(VOC_TEST_CASES_PATH.read_text(encoding="utf-8"))["cases"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError):
+        return 0, 0
+    return len(cases), sum(bool(case.get("judge_enabled", False)) for case in cases)
 
 
 def find_k6() -> str | None:
@@ -256,10 +266,14 @@ class TestTab(tk.Frame):
                 "다른 파괴적 테스트가 실행 중이지 않은지 확인했습니까?"
             )
             if "run_voc_profile.py" in " ".join(self.command):
+                total_cases, api_cases = load_voc_case_counts()
+                max_api_calls = api_cases * 7
                 message = (
-                    "실험군: " + self.command[-1] + "\n"
-                    "대표 케이스: TC-01, TC-02\n"
-                    "예상 외부 AI 호출: 케이스당 최대 7회, 총 최대 14회\n"
+                    "실험군: " + self.test_id[-1].upper() + "\n"
+                    f"등록된 전체 테스트케이스: {total_cases}건\n"
+                    f"실제 AI 평가 대상: {api_cases}건\n"
+                    f"예상 외부 AI 기본 호출: 평가 대상당 최대 7회, 총 최대 {max_api_calls}회\n"
+                    "API 재시도가 발생하면 실제 호출 수는 더 늘어날 수 있습니다.\n"
                     "실제 외부 AI 연결 시험(API)을 실행할까요?"
                 )
             elif self.test_id == "ai_api_performance":
@@ -277,7 +291,12 @@ class TestTab(tk.Frame):
         self.cancel_requested = False
         self.started_at = datetime.now().astimezone().isoformat(timespec="seconds")
         if self.test_id.startswith("voc_profile_"):
-            report_settings.update({"프로필": self.test_id[-1].upper(), "대표 사례": "TC-01, TC-02"})
+            total_cases, api_cases = load_voc_case_counts()
+            report_settings.update({
+                "프로필": self.test_id[-1].upper(),
+                "전체 테스트케이스": total_cases,
+                "실제 AI 평가 대상": api_cases,
+            })
         if self.test_id == "ai_api_performance":
             report_settings.update({
                 "실행 단계": "1명 → 10명 → 25명",
@@ -464,11 +483,13 @@ class QAControl(tk.Tk):
         )
         for profile_id in "ABCD":
             command = [PY, "-u", "tools/scripts/run_voc_profile.py", "--profile", profile_id]
+            total_cases, api_cases = load_voc_case_counts()
             detail = (
                 VOC_PROFILE_DESCRIPTION
                 + "\n\n"
                 + PROFILE_LABELS[profile_id]
-                + "\n대표 사례 2건만 실행합니다. 확장 사고 기능: 사용 안 함(thinking=disabled)"
+                + f"\n현재 전체 {total_cases}건 중 실제 AI 평가 대상은 {api_cases}건입니다. "
+                "확장 사고 기능: 사용 안 함(thinking=disabled)"
             )
             title = f"에이전트 교차 테스트 ({profile_id})"
             self._add_test_tab(
