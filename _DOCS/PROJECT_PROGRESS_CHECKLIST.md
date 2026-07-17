@@ -258,6 +258,7 @@
 - [x] VOC 전용 Grafana 대시보드 JSON 작성
 - [x] VOC A~D 정식 보고서 기반 `voc_testcase_*` Prometheus 지표 노출
 - [x] VOC QA·A~D Grafana 9개 패널을 테스트케이스 전용 지표로 교체
+- [x] Grafana 4개 기본 조회 범위를 AI 30분·K6 1시간·VOC 챗봇 30분·VOC QA 24시간으로 설정하고 화면 갱신을 5초로 통일
 - [x] Prometheus Docker 영구 볼륨 적용과 재시작 후 시계열 보존 검증
 - [ ] 에이전트별 처리시간·오류율 표시
 - [x] VOC 실시간·테스트케이스 Judge 판정 분포 표시

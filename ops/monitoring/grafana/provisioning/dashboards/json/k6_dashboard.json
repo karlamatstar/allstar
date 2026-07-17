@@ -2,10 +2,10 @@
   "title": "K6 성능 부하 시험 모니터링",
   "uid": "k6-performance-test",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "timezone": "browser",
   "refresh": "5s",
-  "time": {"from": "now-6h", "to": "now"},
+  "time": {"from": "now-1h", "to": "now"},
   "tags": ["k6", "performance", "load-test"],
   "templating": {"list": []},
   "panels": [

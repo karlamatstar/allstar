@@ -2,9 +2,9 @@
   "title": "VOC 챗봇 실시간 운영 모니터링",
   "uid": "voc-live-operations",
   "schemaVersion": 39,
-  "version": 2,
-  "refresh": "10s",
-  "time": {"from": "now-6h", "to": "now"},
+  "version": 3,
+  "refresh": "5s",
+  "time": {"from": "now-30m", "to": "now"},
   "tags": ["voc", "live", "operations"],
   "templating": {"list": []},
   "panels": [
