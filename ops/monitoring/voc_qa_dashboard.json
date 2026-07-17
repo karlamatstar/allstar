@@ -2,7 +2,7 @@
   "title": "VOC QA A~D 테스트케이스 비교",
   "uid": "voc-qa-abcd",
   "schemaVersion": 39,
-  "version": 4,
+  "version": 5,
   "refresh": "5s",
   "time": {"from": "now-24h", "to": "now"},
   "tags": ["voc", "qa", "abcd", "testcase"],
@@ -96,7 +96,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
       "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
-      "targets": [{"expr": "time() - voc_testcase_last_report_timestamp_seconds", "legendFormat": "프로필 {{profile}}", "instant": true}]
+      "targets": [{"expr": "(time() - voc_testcase_last_report_timestamp_seconds) and (voc_testcase_last_report_timestamp_seconds > 0)", "legendFormat": "프로필 {{profile}}", "instant": true}]
     }
   ]
 }

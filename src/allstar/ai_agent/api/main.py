@@ -10,8 +10,10 @@ from starlette.background import BackgroundTask
 
 from allstar.ai_agent.api.config import OPENAI_MODEL
 from allstar.ai_agent.api.judge_agent import JudgeUnavailableError, get_evaluation_from_openai
-from allstar.ai_agent.api.logger_config import log_conversation, log_evaluation, logger
+from allstar.ai_agent.api.logger_config import CONVERSATION_LOG_FILE, log_conversation, log_evaluation, logger
 from allstar.ai_agent.api.metrics import (
+    agent_retry_total,
+    agent_unavailable_total,
     chat_last_activity_timestamp_seconds,
     chat_request_latency_seconds,
     chat_requests_total,
@@ -21,10 +23,12 @@ from allstar.ai_agent.api.metrics import (
     judge_evaluations_total,
     judge_score_total,
     metrics_app,
+    restore_last_activity_from_log,
+    restore_service_failure_metrics_from_log,
 )
 from allstar.ai_agent.api.rule_based_agent import get_answer_from_rule_based_agent
 from allstar.ai_agent.api.schemas import ChatRequest, ChatResponse, FaultChatRequest, HealthResponse
-from allstar.ai_agent.api.service_agent import ApiAgentUnavailableError, get_answer_from_api_agent
+from allstar.ai_agent.api.service_agent import API_AGENT_MAX_ATTEMPTS, ApiAgentUnavailableError, get_answer_from_api_agent
 from allstar.ai_agent.evaluation.live_faults import record_chat_fault
 from allstar.ai_agent.evaluation.live_report_status import (
     mark_completed,
@@ -49,6 +53,11 @@ async def lifespan(app: FastAPI):
     # API 키가 없어도 Health, Swagger, 규칙 기반 기능은 실행한다.
     # OpenAI 기능은 실제 호출 시 service_agent와 judge_agent가 키를 검증한다.
     initialize_metric_series()
+    restore_last_activity_from_log(CONVERSATION_LOG_FILE)
+    restore_service_failure_metrics_from_log(
+        CONVERSATION_LOG_FILE,
+        retries_per_failure=API_AGENT_MAX_ATTEMPTS,
+    )
     yield
 
 
@@ -104,6 +113,8 @@ async def fault_chat(request: FaultChatRequest) -> JSONResponse:
     chat_request_latency_seconds.observe(latency_ms / 1000)
     chat_requests_total.labels(status="error").inc()
     chat_last_activity_timestamp_seconds.set_to_current_time()
+    agent_retry_total.labels(agent="service_agent").inc(API_AGENT_MAX_ATTEMPTS)
+    agent_unavailable_total.labels(agent="service_agent").inc()
     for model in (MODEL_API, MODEL_RULE):
         judge_evaluations_total.labels(decision="N/A", model=model).inc()
     return JSONResponse(
@@ -288,7 +299,14 @@ def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatRespons
         chat_requests_total.labels(status="fallback" if is_api_error else "success").inc()
         chat_last_activity_timestamp_seconds.set_to_current_time()
         request_id = uuid.uuid4().hex
-        log_conversation(request.question, answer, latency_ms, rule_answer=rule_answer, request_id=request_id)
+        log_conversation(
+            request.question,
+            answer,
+            latency_ms,
+            status="fallback" if is_api_error else "success",
+            rule_answer=rule_answer,
+            request_id=request_id,
+        )
         mark_pending(request_id)
         background_tasks.add_task(_score_both_and_check_jira_background, request.question, answer, rule_answer, request_id, is_api_error)
 

@@ -79,6 +79,8 @@ def test_chat_request_schema_omits_removed_fault_injection_field():
 
 def test_explicit_503_fault_returns_http_error_and_records_na(monkeypatch):
     events = []
+    retry_before = main_module.agent_retry_total.labels(agent="service_agent")._value.get()
+    unavailable_before = main_module.agent_unavailable_total.labels(agent="service_agent")._value.get()
     monkeypatch.setattr(
         main_module,
         "record_chat_fault",
@@ -98,6 +100,10 @@ def test_explicit_503_fault_returns_http_error_and_records_na(monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"]["decision"] == "N/A"
     assert events[0]["fault_type"] == "http_503"
+    assert main_module.agent_retry_total.labels(agent="service_agent")._value.get() == (
+        retry_before + main_module.API_AGENT_MAX_ATTEMPTS
+    )
+    assert main_module.agent_unavailable_total.labels(agent="service_agent")._value.get() == unavailable_before + 1
     assert events[0]["http_status"] == 503
     assert events[0]["case_id"] == "TC-001"
 
@@ -105,6 +111,8 @@ def test_explicit_503_fault_returns_http_error_and_records_na(monkeypatch):
 def test_explicit_504_fault_waits_ten_seconds_before_error(monkeypatch):
     waits = []
     events = []
+    retry_before = main_module.agent_retry_total.labels(agent="service_agent")._value.get()
+    unavailable_before = main_module.agent_unavailable_total.labels(agent="service_agent")._value.get()
 
     async def fake_sleep(seconds):
         waits.append(seconds)
@@ -125,6 +133,10 @@ def test_explicit_504_fault_waits_ten_seconds_before_error(monkeypatch):
     assert waits == [10.0]
     assert events[0]["fault_type"] == "http_504"
     assert events[0]["http_status"] == 504
+    assert main_module.agent_retry_total.labels(agent="service_agent")._value.get() == (
+        retry_before + main_module.API_AGENT_MAX_ATTEMPTS
+    )
+    assert main_module.agent_unavailable_total.labels(agent="service_agent")._value.get() == unavailable_before + 1
 
 
 def test_background_scoring_refreshes_report_after_both_logs(monkeypatch):

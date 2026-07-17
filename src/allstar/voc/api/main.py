@@ -23,6 +23,7 @@ from allstar.voc.api.metrics import (
     voc_judge_score,
     voc_judge_total,
     voc_judge_verdict_total,
+    restore_last_activity_from_logs,
 )
 from allstar.voc.api.report_generator import generate_live_report
 from allstar.voc.api.runtime import PipelineRunner
@@ -42,6 +43,7 @@ load_dotenv()
 app = FastAPI(title="VOC HTTP Gateway", version="0.1.0")
 app.mount("/metrics", metrics_app)
 initialize_metric_series()
+restore_last_activity_from_logs(log_store.CONVERSATION_DIR)
 
 _runner = PipelineRunner()
 _jobs: dict[str, dict] = {}

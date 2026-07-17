@@ -2,7 +2,7 @@
   "title": "VOC 챗봇 실시간 운영 모니터링",
   "uid": "voc-live-operations",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "5s",
   "time": {"from": "now-30m", "to": "now"},
   "tags": ["voc", "live", "operations"],
@@ -53,7 +53,7 @@
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "s", "min": 0, "color": {"mode": "palette-classic"}}, "overrides": []},
       "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}},
-      "targets": [{"expr": "time() - voc_chat_last_activity_timestamp_seconds", "legendFormat": "프로필 {{profile}}", "instant": true}]
+      "targets": [{"expr": "(time() - voc_chat_last_activity_timestamp_seconds) and (voc_chat_last_activity_timestamp_seconds > 0)", "legendFormat": "프로필 {{profile}}", "instant": true}]
     },
     {
       "id": 6,

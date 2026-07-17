@@ -2,7 +2,7 @@
   "title": "AI 에이전트 실시간 운영 모니터링",
   "uid": "ai-agent-quality",
   "schemaVersion": 39,
-  "version": 9,
+  "version": 10,
   "refresh": "5s",
   "time": { "from": "now-30m", "to": "now" },
   "graphTooltip": 1,
@@ -15,10 +15,11 @@
   "panels": [
     {
       "id": 1,
-      "title": "1. 오류율 (%) (오류503)",
+      "title": "1. 오류율 (%) (503·504·서버다운)",
       "type": "stat",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "description": "선택한 조회 범위에서 실제·강제 503, 504, 채팅 서버 다운이 차지한 비율입니다. 인프라 장애이므로 품질 보고서 판정은 FAIL이 아니라 N/A입니다.",
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -46,6 +47,11 @@
       },
       "targets": [
         {
+          "expr": "100 * (sum(increase(chat_requests_total{status=\"error\"}[$__range])) or vector(0)) / clamp_min(sum(increase(chat_requests_total[$__range])), 1)",
+          "legendFormat": "error rate"
+        },
+        {
+          "hide": true,
           "expr": "100 * (sum(rate(chat_requests_total{status=\"error\"}[1m])) or vector(0)) / clamp_min(sum(rate(chat_requests_total[1m])), 0.000001)",
           "legendFormat": "error rate"
         }
@@ -276,7 +282,7 @@
       },
       "targets": [
         {
-          "expr": "time() - chat_last_activity_timestamp_seconds",
+          "expr": "(time() - chat_last_activity_timestamp_seconds) and (chat_last_activity_timestamp_seconds > 0)",
           "legendFormat": "마지막 실제 채팅"
         }
       ]

@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime
+from pathlib import Path
+
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 
 from allstar.voc.api.testcase_metrics import VocTestcaseReportCollector
@@ -55,6 +61,29 @@ def initialize_metric_series() -> None:
         voc_chat_latency.labels(profile=profile)
         voc_judge_score.labels(profile=profile)
         voc_judge_duration.labels(profile=profile)
+
+
+def restore_last_activity_from_logs(conversation_dir: Path) -> dict[str, float]:
+    """누적 VOC 대화 로그에서 프로필별 최신 완료 시각을 Gauge에 복원한다."""
+    latest: dict[str, float] = {}
+    if not conversation_dir.exists():
+        return latest
+    for path in sorted(conversation_dir.glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+                profile = str(row.get("profile_id") or "").upper()
+                value = row.get("finished_at") or row.get("timestamp")
+                timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+                continue
+            if profile not in {"A", "B", "C", "D"}:
+                continue
+            latest[profile] = max(latest.get(profile, 0.0), timestamp)
+    for profile, timestamp in latest.items():
+        if timestamp > 0:
+            voc_chat_last_activity.labels(profile=profile).set(timestamp)
+    return latest
 
 # A~D 배치는 짧게 실행되는 별도 프로세스이므로 메모리 Counter를 직접 쓰지 않는다.
 # 계속 실행되는 VOC API가 공유 정식 보고서를 읽어 테스트케이스 지표를 제공한다.
