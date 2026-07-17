@@ -6,7 +6,7 @@ from openai import OpenAI
 
 from allstar.ai_agent.api.concurrency import BACKOFF_BASE_SECONDS, openai_call_semaphore
 from allstar.ai_agent.api.config import OPENAI_API_KEY, OPENAI_MODEL
-from allstar.ai_agent.api.knowledge_base import COURSE_KNOWLEDGE
+from allstar.ai_agent.api.knowledge_base import format_course_knowledge
 from allstar.ai_agent.api.metrics import agent_retry_total, agent_unavailable_total
 
 JUDGE_TIMEOUT_SECONDS = 20.0
@@ -51,7 +51,7 @@ def _parse_judge_response(raw_text: str) -> dict:
 
 
 def _format_knowledge_base() -> str:
-    return "\n".join(f"- {key}: {value}" for key, value in COURSE_KNOWLEDGE.items())
+    return format_course_knowledge()
 
 
 def _build_prompt(user_question: str, ai_answer: str, expected_policy: str | None) -> str:

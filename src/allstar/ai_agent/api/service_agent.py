@@ -4,7 +4,7 @@ from openai import OpenAI
 
 from allstar.ai_agent.api.concurrency import BACKOFF_BASE_SECONDS, openai_call_semaphore
 from allstar.ai_agent.api.config import OPENAI_API_KEY, OPENAI_MODEL
-from allstar.ai_agent.api.knowledge_base import COURSE_KNOWLEDGE
+from allstar.ai_agent.api.knowledge_base import format_course_knowledge
 from allstar.ai_agent.api.metrics import agent_retry_total, agent_unavailable_total
 
 API_AGENT_TIMEOUT_SECONDS = 20.0
@@ -35,12 +35,7 @@ SYSTEM_PROMPT = f"""당신은 AI 교육과정 안내 챗봇입니다.
 아래 교육과정 정보만 기준으로 답변하세요.
 
 [교육과정 정보]
-과정명: {COURSE_KNOWLEDGE["course_name"]}
-총 교육시간: {COURSE_KNOWLEDGE["total_hours"]}시간
-출결 규정: {COURSE_KNOWLEDGE["attendance_rule"]}
-수료 기준: {COURSE_KNOWLEDGE["completion_rule"]}
-프로젝트 기준: {COURSE_KNOWLEDGE["project_rule"]}
-취업지원 안내: {COURSE_KNOWLEDGE["support_rule"]}
+{format_course_knowledge()}
 
 답변 원칙:
 1. 제공된 정보에 없는 사실은 추측하지 않습니다.

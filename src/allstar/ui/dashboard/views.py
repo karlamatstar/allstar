@@ -16,6 +16,7 @@ from urllib.parse import unquote, urlparse
 import httpx
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -30,6 +31,8 @@ from allstar.shared.paths import (
     VOC_REPORT_ROOT,
 )
 from allstar.voc.evaluation.progress import read_progress
+from allstar.voc.evaluation.runtime_support import load_json as load_voc_json
+from allstar.voc.api.validation import is_valid_question_text
 
 
 PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
@@ -44,6 +47,7 @@ AI_BATCH_REPORT = AI_AGENT_REPORT_ROOT / "batch" / "evaluation_result.csv"
 AI_LIVE_REPORT = AI_AGENT_REPORT_ROOT / "live" / "live_report.csv"
 AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
 AI_JUDGMENTS = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
+VOC_LIVE_CONVERSATION_DIR = VOC_LOG_ROOT / "live" / "conversations"
 PROCESS_LOG_ROOT = PROJECT_ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
 GRAFANA_DASHBOARD_PATHS = {
     "ai-agent-quality": PROJECT_ROOT / "ops" / "monitoring" / "grafana_dashboard.json",
@@ -88,6 +92,12 @@ STAGES = [
     ("Critic", "결과 검토"),
     ("Improver", "최종 답변 개선"),
     ("LLM Judge", "독립 품질 평가"),
+]
+VOC_RUBRIC_VERSION = "voc_9x100_v1"
+VOC_RUBRIC = load_voc_json("judge_rubric.json")
+VOC_SCORE_CRITERIA = [
+    (criterion["name"], int(criterion["max_score"]))
+    for criterion in VOC_RUBRIC["criteria"]
 ]
 
 
@@ -419,12 +429,14 @@ def _render_process(state_key: str, label: str) -> tuple[bool, str]:
 
 
 def _status_stage_states(status: dict) -> list[str]:
-    if status.get("_stage_states"):
-        return list(status["_stage_states"])
+    if status.get("stage_states") or status.get("_stage_states"):
+        return list(status.get("stage_states") or status["_stage_states"])
     job_status = status.get("status")
     current = status.get("current_stage", "")
     if job_status == "queued":
         return ["pending"] * 7
+    if job_status == "no_data":
+        return ["done", "no_data"] + ["skipped"] * 5
     if job_status == "failed":
         return ["failed"] + ["skipped"] * 6
     if job_status == "completed":
@@ -438,8 +450,19 @@ def _status_stage_states(status: dict) -> list[str]:
 
 
 def _status_stage_details(status: dict) -> list[Any]:
-    if status.get("_stage_details"):
-        return list(status["_stage_details"])
+    if status.get("stage_details") or status.get("_stage_details"):
+        details = list(status.get("stage_details") or status["_stage_details"])
+        result = status.get("result") or {}
+        fallback = [
+            _safe_json(result.get("intent_json") or "아직 결과가 없습니다."),
+            str(result.get("trace") or "아직 결과가 없습니다."),
+            result.get("summary") or "아직 결과가 없습니다.",
+            _safe_json(result.get("eval_json") or "아직 결과가 없습니다."),
+            _safe_json(result.get("summary_critic_json") or "아직 결과가 없습니다."),
+            result.get("policy") or result.get("answer") or "아직 결과가 없습니다.",
+            status.get("judge") or status.get("error") or "아직 결과가 없습니다.",
+        ]
+        return [detail or fallback[index] for index, detail in enumerate(details)]
     result = status.get("result") or {}
     trace = str(result.get("trace") or "")
     retriever = ""
@@ -458,7 +481,7 @@ def _status_stage_details(status: dict) -> list[Any]:
 
 
 def _render_stage_flow(states: list[str], safe_key: str) -> None:
-    state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀"}
+    state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀", "no_data": "데이터 없음"}
     with st.container(horizontal=True, gap="small", key=f"stage_top_{safe_key}"):
         for index, ((english, korean), state) in enumerate(zip(STAGES, states)):
             with st.container(width=180, key=f"stage_top_cell_{safe_key}_{index}"):
@@ -476,8 +499,8 @@ def _render_stage_flow(states: list[str], safe_key: str) -> None:
 def _render_stage_explorer(status: dict, key_prefix: str, interactive: bool = True) -> None:
     states = _status_stage_states(status)
     details = _status_stage_details(status)
-    symbols = {"pending": "○", "running": "◔", "done": "✓", "failed": "!", "skipped": "－"}
-    state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀"}
+    symbols = {"pending": "○", "running": "◔", "done": "✓", "failed": "!", "skipped": "－", "no_data": "∅"}
+    state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀", "no_data": "데이터 없음"}
     selected_key = f"{key_prefix}_selected_stage"
     st.session_state.setdefault(selected_key, 0)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
@@ -799,8 +822,307 @@ def _render_profile_cards(
     return selected
 
 
-def render_voc_chat() -> None:
-    _section("VOC 챗봇", "질문마다 A~D 모델 프로필을 선택하고 7단계 처리 결과를 확인합니다.")
+@st.cache_data(ttl=2, show_spinner=False)
+def _read_voc_live_rows(directory: Path = VOC_LIVE_CONVERSATION_DIR) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not directory.exists():
+        return rows
+    for path in sorted(directory.glob("*.jsonl")):
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    return rows
+
+
+def _clear_voc_live_caches() -> None:
+    _read_voc_live_rows.clear()
+    _read_jsonl.clear()
+
+
+def _voc_live_frame() -> pd.DataFrame:
+    flattened: list[dict[str, Any]] = []
+    for row in _read_voc_live_rows():
+        if not is_valid_question_text(row.get("question")):
+            continue
+        profile = row.get("profile") or {}
+        generation = profile.get("generation") or {}
+        judge_spec = profile.get("judge") or {}
+        result = row.get("result") or {}
+        judge = row.get("judge") or {}
+        current_rubric = judge.get("rubric_version") == VOC_RUBRIC_VERSION
+        scores = judge.get("scores") if current_rubric and isinstance(judge.get("scores"), dict) else {}
+        reasons = judge.get("reasons") if current_rubric and isinstance(judge.get("reasons"), dict) else {}
+        flattened_row: dict[str, Any] = {
+            "timestamp": row.get("finished_at") or row.get("timestamp"),
+            "started_at": row.get("timestamp"),
+            "request_id": row.get("request_id", ""),
+            "question": row.get("question", ""),
+            "profile_id": row.get("profile_id", ""),
+            "profile_title": profile.get("title", ""),
+            "generation_model": f"{generation.get('provider', '')} / {generation.get('model', '')}",
+            "judge_model": f"{judge_spec.get('provider', '')} / {judge_spec.get('model', '')}",
+            "status": row.get("status", ""),
+            "elapsed_seconds": row.get("elapsed_seconds"),
+            "answer": result.get("answer") or result.get("policy") or result.get("summary") or "",
+            "total": judge.get("total") if current_rubric else None,
+            "verdict": judge.get("verdict") if current_rubric else "N/A",
+            "rubric": "9항목·100점" if current_rubric else "이전 4항목·20점" if judge else "N/A",
+            "rationale": judge.get("rationale", "") if current_rubric else "",
+            "score_reasons": reasons,
+            "intent_json": result.get("intent_json", ""),
+            "trace": result.get("trace", ""),
+            "error": row.get("error", ""),
+        }
+        for name, _maximum in VOC_SCORE_CRITERIA:
+            flattened_row[name] = scores.get(name)
+        flattened.append(flattened_row)
+    if not flattened:
+        return pd.DataFrame()
+    frame = pd.DataFrame(flattened)
+    frame["_sort_time"] = pd.to_datetime(frame["timestamp"], errors="coerce", utc=True)
+    return frame.sort_values("_sort_time", ascending=False).reset_index(drop=True)
+
+
+def _refresh_voc_live_data(key: str) -> None:
+    if st.button(
+        "↻ VOC 챗봇 데이터 갱신",
+        key=f"voc_live_refresh_{key}",
+        help="누적 대화 로그를 다시 읽고 최신 VOC 챗봇 보고서를 갱신합니다.",
+    ):
+        try:
+            from allstar.voc.api.report_generator import generate_live_report
+
+            with st.spinner("누적 로그로 VOC 챗봇 보고서를 다시 작성하고 있습니다..."):
+                generate_live_report()
+            _clear_voc_live_caches()
+            st.toast("VOC 챗봇 데이터와 보고서를 갱신했습니다.", icon="✅")
+            st.rerun(scope="app")
+        except Exception as error:
+            st.error(f"VOC 챗봇 보고서를 갱신하지 못했습니다: {error}")
+
+
+def _voc_status_text(value: Any) -> str:
+    return {
+        "completed": "완료",
+        "no_data": "관련 데이터 없음",
+        "failed": "처리 실패",
+        "processing": "처리 중",
+        "queued": "대기",
+    }.get(str(value), str(value))
+
+
+def _render_voc_conversation_log(frame: pd.DataFrame) -> None:
+    _refresh_voc_live_data("log")
+    if frame.empty:
+        st.info("아직 저장된 VOC 챗봇 대화 로그가 없습니다.")
+        return
+    view = pd.DataFrame({
+        "시간": frame["timestamp"].map(_local_time_text),
+        "질문": frame["question"],
+        "프로필": frame["profile_id"],
+        "생성 모델": frame["generation_model"],
+        "평가 모델": frame["judge_model"],
+        "총점": frame["total"],
+        "판정": frame["verdict"],
+        "상태": frame["status"].map(_voc_status_text),
+        "처리시간(초)": frame["elapsed_seconds"],
+        "채점 기준": frame["rubric"],
+        "답변": frame["answer"],
+    })
+    _render_dataframe(view, height=460)
+    st.caption("요청 ID와 내부 검색 추적 정보는 대화별 채점 상세의 기술 상세에서 확인합니다.")
+
+
+def _voc_question_page(frame: pd.DataFrame, key: str) -> tuple[pd.DataFrame, list[str]]:
+    latest_questions = (
+        frame.dropna(subset=["question"])
+        .sort_values("_sort_time", ascending=False)
+        .drop_duplicates("question", keep="first")
+    )
+    question_order = latest_questions["question"].astype(str).tolist()
+    size_key = f"{key}_page_size"
+    page_key = f"{key}_page"
+    selected_size = st.selectbox("한 화면에 표시할 질문 수", [5, 10, 20, "전체"], index=1, key=size_key)
+    page_size = max(1, len(question_order) if selected_size == "전체" else int(selected_size))
+    total_pages = max(1, (len(question_order) + page_size - 1) // page_size)
+    st.session_state.setdefault(page_key, 0)
+    page = min(max(int(st.session_state[page_key]), 0), total_pages - 1)
+    st.session_state[page_key] = page
+    controls = st.columns([1, 2, 1])
+    controls[0].button(
+        "← 이전", key=f"{key}_previous", disabled=page == 0, width="stretch",
+        on_click=_change_quality_page, args=(page_key, -1),
+    )
+    controls[1].markdown(
+        f"<div style='text-align:center;padding:.45rem 0;font-weight:700'>{page + 1} / {total_pages} 페이지 · 총 {len(question_order)}질문</div>",
+        unsafe_allow_html=True,
+    )
+    controls[2].button(
+        "다음 →", key=f"{key}_next", disabled=page >= total_pages - 1, width="stretch",
+        on_click=_change_quality_page, args=(page_key, 1),
+    )
+    visible_questions = question_order[page * page_size:(page + 1) * page_size]
+    visible = frame[frame["question"].astype(str).isin(visible_questions)].copy()
+    visible = visible.sort_values("_sort_time", ascending=False).drop_duplicates(["question", "profile_id"], keep="first")
+    return visible, visible_questions
+
+
+def _render_voc_quality(frame: pd.DataFrame) -> None:
+    _refresh_voc_live_data("quality")
+    if frame.empty:
+        st.info("아직 저장된 VOC 챗봇 품질 데이터가 없습니다.")
+        return
+    scored = frame[frame["rubric"] == "9항목·100점"].copy()
+    metric_values = [
+        ("전체 대화", len(frame)),
+        ("정상 채점", len(scored)),
+        ("배포 가능", int(scored["verdict"].eq("배포 가능").sum()) if not scored.empty else 0),
+        ("조건부", int(scored["verdict"].astype(str).str.startswith("조건부").sum()) if not scored.empty else 0),
+        ("개선·보류", int(scored["verdict"].astype(str).isin(["주요 개선 필요", "배포 보류", "배포 보류(즉시)"]).sum()) if not scored.empty else 0),
+        ("N/A", len(frame) - len(scored)),
+    ]
+    columns = st.columns(len(metric_values))
+    for column, (label, value) in zip(columns, metric_values):
+        column.metric(label, value)
+    if not scored.empty:
+        average_columns = st.columns(2)
+        average_columns[0].metric("평균 품질점수", f"{pd.to_numeric(scored['total'], errors='coerce').mean():.1f}/100")
+        average_columns[1].metric("평균 처리시간", f"{pd.to_numeric(frame['elapsed_seconds'], errors='coerce').mean():.1f}초")
+
+    visible, question_order = _voc_question_page(frame, "voc_live_quality")
+    chart_source = visible[visible["rubric"] == "9항목·100점"].copy()
+    if chart_source.empty:
+        st.info("선택한 질문 범위에는 새 9항목·100점 채점 결과가 없습니다.")
+    else:
+        chart_source["질문"] = chart_source["question"].map(lambda value: str(value)[:38])
+        chart_source["프로필"] = chart_source["profile_id"]
+        chart_source["표시"] = chart_source.apply(
+            lambda row: f"{row['profile_id']} · {row['total']}점<br>{row['verdict']}", axis=1
+        )
+        figure = px.bar(
+            chart_source,
+            x="질문",
+            y="total",
+            color="프로필",
+            barmode="group",
+            text="표시",
+            category_orders={"질문": [question[:38] for question in question_order], "프로필": ["A", "B", "C", "D"]},
+            hover_data=["verdict", "generation_model", "judge_model", "elapsed_seconds"],
+        )
+        figure.update_traces(textposition="outside", cliponaxis=False)
+        figure.update_layout(yaxis_title="품질점수", yaxis_range=[0, 108], xaxis_title="질문", margin=dict(t=40, b=40))
+        st.plotly_chart(figure, width="stretch", key="voc_live_quality_chart")
+
+    comparison_rows = []
+    for question in question_order:
+        question_rows = visible[visible["question"].astype(str) == question]
+        row: dict[str, Any] = {"질문": question}
+        for profile_id in ("A", "B", "C", "D"):
+            profile_rows = question_rows[question_rows["profile_id"] == profile_id]
+            if profile_rows.empty:
+                row[f"프로필 {profile_id}"] = "데이터 없음"
+            else:
+                profile_row = profile_rows.iloc[0]
+                row[f"프로필 {profile_id}"] = (
+                    f"{profile_row['total']:.0f}점 · {profile_row['verdict']}"
+                    if pd.notna(profile_row["total"])
+                    else f"N/A · {_voc_status_text(profile_row['status'])}"
+                )
+        comparison_rows.append(row)
+    if comparison_rows:
+        _render_dataframe(pd.DataFrame(comparison_rows), height=360)
+
+
+def _render_voc_breakdown(frame: pd.DataFrame) -> None:
+    _refresh_voc_live_data("breakdown")
+    scored = frame[frame["rubric"] == "9항목·100점"].copy() if not frame.empty else pd.DataFrame()
+    if scored.empty:
+        st.info("9항목·100점으로 정상 채점된 VOC 챗봇 대화가 아직 없습니다.")
+        return
+    left, right = st.columns([1.1, 1])
+    figure = go.Figure()
+    categories = [name for name, _maximum in VOC_SCORE_CRITERIA]
+    table_rows: list[dict[str, Any]] = []
+    for name, maximum in VOC_SCORE_CRITERIA:
+        table_rows.append({"평가 항목": name, "최대": maximum})
+    counts = []
+    for profile_id in ("A", "B", "C", "D"):
+        profile_rows = scored[scored["profile_id"] == profile_id]
+        counts.append(f"{profile_id} {len(profile_rows)}건")
+        normalized = []
+        for index, (name, maximum) in enumerate(VOC_SCORE_CRITERIA):
+            values = pd.to_numeric(profile_rows[name], errors="coerce").dropna() if not profile_rows.empty else pd.Series(dtype=float)
+            mean = values.mean() if not values.empty else None
+            normalized.append((mean / maximum * 100) if mean is not None else None)
+            table_rows[index][f"프로필 {profile_id}"] = f"{mean:.1f}/{maximum}" if mean is not None else "데이터 없음"
+        if any(value is not None for value in normalized):
+            figure.add_trace(go.Scatterpolar(
+                r=[value or 0 for value in normalized] + [normalized[0] or 0],
+                theta=categories + [categories[0]],
+                fill="toself",
+                name=f"프로필 {profile_id}",
+            ))
+    figure.update_layout(
+        polar={"radialaxis": {"visible": True, "range": [0, 100], "ticksuffix": "%"}},
+        margin={"l": 35, "r": 35, "t": 40, "b": 35},
+        legend={"orientation": "h"},
+    )
+    with left:
+        st.caption("A~D 프로필 조합 비교 · 항목별 최대 점수가 달라 0~100%로 정규화")
+        st.plotly_chart(figure, width="stretch", key="voc_live_breakdown_radar")
+    with right:
+        st.caption("정확한 평균점수 · " + " · ".join(counts))
+        _render_dataframe(pd.DataFrame(table_rows), height=470)
+
+
+def _render_voc_detail(frame: pd.DataFrame) -> None:
+    _refresh_voc_live_data("detail")
+    if frame.empty:
+        st.info("아직 확인할 VOC 챗봇 대화가 없습니다.")
+        return
+    profile_filter = st.selectbox("프로필", ["전체", "A", "B", "C", "D"], key="voc_live_detail_profile")
+    source = frame if profile_filter == "전체" else frame[frame["profile_id"] == profile_filter]
+    limit = st.selectbox("표시할 최근 대화 수", [5, 10, 20, "전체"], index=1, key="voc_live_detail_limit")
+    source = source if limit == "전체" else source.head(int(limit))
+    for index, row in source.iterrows():
+        total = f"{row['total']:.0f}점" if pd.notna(row["total"]) else "N/A"
+        label = f"{_local_time_text(row['timestamp'])} · 프로필 {row['profile_id']} · {total} · {row['verdict']} · {str(row['question'])[:45]}"
+        with st.expander(label, expanded=False):
+            st.markdown(f"**질문**  \n{row['question']}")
+            st.markdown(f"**답변**  \n{row['answer'] or '결과 없음'}")
+            summary_columns = st.columns(3)
+            summary_columns[0].metric("총점", total)
+            summary_columns[1].metric("판정", row["verdict"])
+            summary_columns[2].metric("처리시간", f"{row['elapsed_seconds']}초")
+            if row["rubric"] == "9항목·100점":
+                reasons = row.get("score_reasons") if isinstance(row.get("score_reasons"), dict) else {}
+                score_rows = []
+                for name, maximum in VOC_SCORE_CRITERIA:
+                    score_rows.append({
+                        "평가 항목": name,
+                        "점수": row.get(name),
+                        "최대": maximum,
+                        "근거": reasons.get(name, ""),
+                    })
+                _render_dataframe(pd.DataFrame(score_rows), height=350)
+                if row.get("rationale"):
+                    st.info(f"종합 근거: {row['rationale']}")
+            else:
+                st.warning("이 대화는 새 9항목·100점 채점 이전 기록이거나 독립 채점이 완료되지 않아 N/A입니다.")
+            with st.popover("기술 상세"):
+                st.caption(f"요청 ID: {row['request_id']}")
+                st.json({
+                    "intent": _safe_json(row.get("intent_json") or ""),
+                    "trace": row.get("trace") or "",
+                    "error": row.get("error") or "",
+                })
+
+
+def _render_voc_chat_conversation() -> None:
     profiles = _get_json(f"{VOC_API}/profiles") or public_profiles()
     pending = st.session_state.get("voc_pending")
     selected_key = "voc_chat_profile_selected"
@@ -830,22 +1152,23 @@ def render_voc_chat() -> None:
             if isinstance(status, dict):
                 st.markdown("### 현재 질문 처리 과정")
                 _render_stage_explorer(status, f"voc_pending_{pending}")
-                st.progress(100 if status["status"] in {"completed", "failed"} else min(95, int(status.get("elapsed_seconds", 0)) + 1))
+                terminal = status["status"] in {"completed", "failed", "no_data"}
+                st.progress(100 if terminal else min(95, int(status.get("elapsed_seconds", 0)) + 1))
                 st.caption(f"{status['current_stage']} · {status.get('elapsed_seconds', 0):.1f}초 · 프로필 {status['profile_id']}")
-                if status["status"] in {"completed", "failed"}:
+                if terminal:
                     result = status.get("result") or {}
                     judge = status.get("judge") or {}
-                    answer = (
-                        result.get("answer") or result.get("policy") or result.get("summary")
-                        if status["status"] == "completed"
-                        else f"처리 실패: {status.get('error', '원인 없음')}"
-                    )
+                    if status["status"] in {"completed", "no_data"}:
+                        answer = result.get("answer") or result.get("policy") or result.get("summary")
+                    else:
+                        answer = "VOC 처리 중 문제가 발생했습니다. 아래 7단계 처리 결과에서 실제 실패 단계와 기술 상세를 확인해 주세요."
                     meta = (
                         f"프로필 {status['profile_id']} · {status.get('elapsed_seconds', 0):.1f}초 · "
                         f"Judge {judge.get('total', 'N/A')} / {judge.get('verdict', 'N/A')} · {_local_time_text()}"
                     )
                     st.session_state.voc_chat_history.append({"role": "assistant", "content": answer or "결과 없음", "meta": meta, "status": status})
                     st.session_state.voc_pending = None
+                    _clear_voc_live_caches()
                     st.rerun()
                 time.sleep(1)
                 st.rerun()
@@ -873,6 +1196,24 @@ def render_voc_chat() -> None:
                 "meta": f"오류 · {_local_time_text()}",
             })
         st.rerun()
+
+
+def render_voc_chat() -> None:
+    _section("VOC 챗봇", "질문마다 A~D 모델 프로필을 선택하고 7단계 처리 결과와 100점 품질 현황을 확인합니다.")
+    tab_chat, tab_log, tab_quality, tab_breakdown, tab_detail = st.tabs(
+        ["챗봇과 대화", "대화 로그", "품질 현황", "유형별 비교", "대화별 채점 상세"]
+    )
+    with tab_chat:
+        _render_voc_chat_conversation()
+    frame = _voc_live_frame()
+    with tab_log:
+        _render_voc_conversation_log(frame)
+    with tab_quality:
+        _render_voc_quality(frame)
+    with tab_breakdown:
+        _render_voc_breakdown(frame)
+    with tab_detail:
+        _render_voc_detail(frame)
 
 
 def render_monitoring() -> None:

@@ -17,6 +17,15 @@ from allstar.voc.api.metrics import metrics_app, voc_chat_latency, voc_chat_tota
 from allstar.voc.api.report_generator import generate_live_report
 from allstar.voc.api.runtime import PipelineRunner
 from allstar.voc.api.schemas import ChatAccepted, ChatRequest, JobStatus
+from allstar.voc.evaluation.progress import (
+    fail_active_stage,
+    finish_case,
+    finish_progress,
+    initialize_progress,
+    read_progress,
+    set_stage,
+    start_case,
+)
 
 
 load_dotenv()
@@ -34,6 +43,7 @@ AGENTS = {
     "critic": os.getenv("CRITIC_ENDPOINT", "127.0.0.1:6005"),
     "improver": os.getenv("IMPROVER_ENDPOINT", "127.0.0.1:6006"),
 }
+LIVE_CASE_ID = "LIVE"
 
 
 def _now() -> str:
@@ -52,26 +62,70 @@ def _endpoint_open(endpoint: str) -> bool:
 async def _execute(request_id: str, request: ChatRequest) -> None:
     started = time.perf_counter()
     profile = get_profile(request.profile_id)
+    initialize_progress(
+        request_id,
+        profile.profile_id,
+        [{"case_id": LIVE_CASE_ID, "question": request.question, "category": "실시간 대화"}],
+    )
+    start_case(request_id, LIVE_CASE_ID)
     async with _jobs_lock:
         _jobs[request_id]["status"] = "processing"
         _jobs[request_id]["current_stage"] = "VOC 6단계 파이프라인"
     try:
-        result = await _runner.run(request.question, profile)
+        result = await _runner.run(
+            request.question,
+            profile,
+            progress_run_id=request_id,
+            progress_case_id=LIVE_CASE_ID,
+        )
         answer = result.get("policy") or result.get("summary") or ""
+        pipeline_elapsed = round(time.perf_counter() - started, 3)
+        result_with_answer = {**result, "answer": answer}
+        async with _jobs_lock:
+            _jobs[request_id]["result"] = result_with_answer
+
+        if result.get("outcome") == "no_data":
+            user_message = (
+                "현재 등록된 VOC 데이터에서 관련 내용을 찾을 수 없습니다. "
+                "보험 VOC의 불편 사항, 원인 분석 또는 개선 방안과 관련된 표현으로 다시 질문해 주세요."
+            )
+            result_with_answer["answer"] = user_message
+            async with _jobs_lock:
+                _jobs[request_id].update({
+                    "status": "no_data",
+                    "current_stage": "관련 데이터 없음",
+                    "finished_at": _now(),
+                    "elapsed_seconds": pipeline_elapsed,
+                    "result": result_with_answer,
+                    "judge": None,
+                    "error": None,
+                })
+            finish_case(request_id, LIVE_CASE_ID, "no_data")
+            finish_progress(request_id, "no_data")
+            voc_chat_total.labels(status="no_data", profile=profile.profile_id).inc()
+            voc_chat_latency.labels(profile=profile.profile_id).observe(pipeline_elapsed)
+            return
+
         if not result.get("ok"):
             raise RuntimeError(result.get("trace") or "VOC 파이프라인이 실패했습니다.")
 
         async with _jobs_lock:
-            _jobs[request_id]["result"] = {**result, "answer": answer}
             _jobs[request_id]["current_stage"] = "LLM Judge"
+        set_stage(request_id, LIVE_CASE_ID, 7, "running", "독립 LLM Judge 채점 진행 중")
 
         judge_result = None
         judge_error = None
         try:
-            judge_result = await judge.evaluate(request.question, answer, profile.judge)
+            judge_result = await judge.evaluate(
+                request.question,
+                result_with_answer,
+                profile.judge,
+                elapsed_seconds=pipeline_elapsed,
+            )
+            set_stage(request_id, LIVE_CASE_ID, 7, "done", "9항목·100점 독립 채점 완료")
             voc_judge_total.labels(status="success", profile=profile.profile_id).inc()
             log_store.judgment({
-                "schema_version": 1,
+                "schema_version": 2,
                 "request_id": request_id,
                 "timestamp": _now(),
                 "profile_id": profile.profile_id,
@@ -80,6 +134,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
             })
         except Exception as error:
             judge_error = str(error)
+            set_stage(request_id, LIVE_CASE_ID, 7, "failed", f"독립 채점 실패: {judge_error}")
             voc_judge_total.labels(status="error", profile=profile.profile_id).inc()
 
         elapsed = round(time.perf_counter() - started, 3)
@@ -94,8 +149,12 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
             })
         voc_chat_total.labels(status="success", profile=profile.profile_id).inc()
         voc_chat_latency.labels(profile=profile.profile_id).observe(elapsed)
+        finish_case(request_id, LIVE_CASE_ID, "completed")
+        finish_progress(request_id, "completed")
     except Exception as error:
         elapsed = round(time.perf_counter() - started, 3)
+        fail_active_stage(request_id, LIVE_CASE_ID, str(error))
+        finish_progress(request_id, "failed", str(error))
         async with _jobs_lock:
             _jobs[request_id].update({
                 "status": "failed",
@@ -109,7 +168,7 @@ async def _execute(request_id: str, request: ChatRequest) -> None:
         async with _jobs_lock:
             row = dict(_jobs[request_id])
         log_store.conversation({
-            "schema_version": 1,
+            "schema_version": 2,
             "request_id": request_id,
             "timestamp": row["started_at"],
             "finished_at": row.get("finished_at"),
@@ -156,6 +215,23 @@ def model_profiles() -> list[dict]:
     return rows
 
 
+def _progress_status(request_id: str) -> dict:
+    progress = read_progress(request_id) or {}
+    case = next(
+        (row for row in progress.get("cases", []) if row.get("case_id") == LIVE_CASE_ID),
+        None,
+    )
+    if not case:
+        return {}
+    stages = case.get("stages", [])
+    running = next((stage for stage in stages if stage.get("state") == "running"), None)
+    return {
+        "stage_states": [stage.get("state", "pending") for stage in stages],
+        "stage_details": [stage.get("detail") for stage in stages],
+        "progress_current_stage": running.get("name") if running else None,
+    }
+
+
 @app.post("/chat", response_model=ChatAccepted, status_code=202)
 async def chat(request: ChatRequest, background_tasks: BackgroundTasks) -> ChatAccepted:
     profile = get_profile(request.profile_id)
@@ -189,6 +265,10 @@ async def chat_status(request_id: str) -> JobStatus:
         if row is None:
             raise HTTPException(404, "요청을 찾을 수 없습니다.")
         data = dict(row)
+    progress_status = _progress_status(request_id)
+    data.update({key: value for key, value in progress_status.items() if key != "progress_current_stage"})
+    if progress_status.get("progress_current_stage") and data.get("status") not in {"completed", "failed", "no_data"}:
+        data["current_stage"] = progress_status["progress_current_stage"]
     if not data.get("finished_at"):
         started = datetime.fromisoformat(data["started_at"])
         data["elapsed_seconds"] = round((datetime.now().astimezone() - started).total_seconds(), 3)

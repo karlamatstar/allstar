@@ -122,6 +122,8 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
 .stage-failed {border-color:#c0392b; background:rgba(192,57,43,.13);}
 .stage-failed em {color:#c0392b;}
 .stage-skipped {border-style:dashed; opacity:.72;}
+.stage-no_data {border-color:#c07a12; background:rgba(192,122,18,.13);}
+.stage-no_data em {color:#c07a12;}
 .stage-arrow {display:flex; width:26px; min-height:112px; align-items:center; justify-content:center; color:var(--allstar-muted); font-size:1.3rem; font-weight:900; text-align:center;}
 .stage-button-arrow {display:flex; width:26px; height:4.5rem; align-items:center; justify-content:center; color:var(--allstar-muted); font-size:1.25rem; font-weight:900;}
 [class*="st-key-stage_scroll_progress_"] {overflow-x:auto; overflow-y:hidden; padding-bottom:1rem;}

@@ -37,6 +37,9 @@ def build_judge_prompt(question: str, analysis: str, rubric: Dict[str, Any]) -> 
     hold_lines = "\n".join(f"- {h}" for h in rubric["immediate_hold_conditions"])
     score_keys = ", ".join(f'"{c["name"]}"' for c in rubric["criteria"])
     score_example = ", ".join(f'"{c["name"]}": 0' for c in rubric["criteria"])
+    reason_example = ", ".join(
+        f'"{c["name"]}": "한 문장 근거"' for c in rubric["criteria"]
+    )
 
     return f"""{JUDGE_SYSTEM}
 
@@ -58,12 +61,14 @@ def build_judge_prompt(question: str, analysis: str, rubric: Dict[str, Any]) -> 
 
 각 기준별 점수와 근거를 평가한 뒤, 아래 JSON 형식으로만 응답하세요.
 scores의 키는 정확히 다음과 같아야 합니다: {score_keys}
+reasons에는 각 항목의 점수 근거를 한 문장 이내로 작성하세요.
 
 설명 문장이나 마크다운 코드펜스(```) 없이, JSON 객체 단 하나만 출력하세요.
 당신의 응답은 반드시 아래 형식의 JSON 객체 하나로 시작하고 그것으로 끝나야 합니다:
 
 {{
   "scores": {{{score_example}}},
+  "reasons": {{{reason_example}}},
   "total": 0,
   "immediate_hold": false,
   "hold_reason": "",
@@ -146,6 +151,11 @@ def parse_judge_response(text: str, rubric: Dict[str, Any]) -> Optional[Dict[str
         clipped[c["name"]] = max(0.0, min(raw, c["max_score"]))
 
     data["scores"] = clipped
+    raw_reasons = data.get("reasons") if isinstance(data.get("reasons"), dict) else {}
+    data["reasons"] = {
+        c["name"]: str(raw_reasons.get(c["name"], "")).strip()
+        for c in rubric["criteria"]
+    }
     data["total"] = round(sum(clipped.values()), 1)
     data.setdefault("immediate_hold", False)
     data.setdefault("hold_reason", "")

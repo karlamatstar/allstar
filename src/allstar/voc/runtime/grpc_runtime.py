@@ -44,6 +44,7 @@ _TOKEN_PATTERN = re.compile(r"[가-힣A-Za-z0-9]+")
 _FALLBACK_STOPWORDS = {
     "정책", "개선안", "제시", "방안", "요청", "voc", "관련", "중심", "분석",
     "데이터", "해줘", "해주세요", "좀", "합니다", "습니다", "있습니다", "없습니다",
+    "방법", "방법에", "대한", "문제", "문제점", "문제점을", "정리", "정리해", "정리해봐", "정리해봐주세요",
 }
 # 흔한 한국어 조사 접미사. 형태소 분석기가 아니라 단순 규칙이라 완벽하지
 # 않지만, "앱을" -> "앱"처럼 CSV 원문(보통 "앱에서", "앱이" 등 다른 조사를
@@ -118,6 +119,7 @@ class VOCGRPCRuntime:
         csv_path: Optional[str],
         timeout: float = 180.0,
         extra_filters: Optional[List[str]] = None,
+        retry_on_no_data: bool = False,
         model_profile: Optional[Dict[str, Any]] = None,
         progress_run_id: Optional[str] = None,
         progress_case_id: Optional[str] = None,
@@ -134,6 +136,8 @@ class VOCGRPCRuntime:
                 영향 없음). 호출자가 명시적으로 넘길 때만 Retriever 검색 범위가
                 넓어진다 - 예: QA 스크립트가 "관련 데이터 없음"이 정답이 아닌
                 케이스에서만 _extract_fallback_tokens(question) 결과를 넘긴다.
+            retry_on_no_data: 첫 검색이 0건이면 원본 질문 핵심어만으로 한 번 재검색한다.
+                실제 VOC 챗봇처럼 일반 질문을 받는 경로에서 사용한다.
 
         Returns:
             Dict: 분석 결과 (summary, policy, trace 등 포함)
@@ -209,11 +213,12 @@ class VOCGRPCRuntime:
             metadata = []
             if progress_run_id and progress_case_id:
                 metadata = [("x-allstar-run-id", progress_run_id), ("x-allstar-case-id", progress_case_id)]
-            try:
-                sres = await stub.RunPipeline(
+
+            async def call_pipeline(filters: List[str]):
+                return await stub.RunPipeline(
                     voc_pb2.RunPipelineReq(
                         csv_path=intent["csv_path"],
-                        filters=combined_filters,
+                        filters=filters,
                         max_items=intent["max_items"],
                         task=intent["task"],
                         generation=generation_config,
@@ -221,18 +226,47 @@ class VOCGRPCRuntime:
                     timeout=timeout,
                     metadata=metadata,
                 )
+
+            try:
+                sres = await call_pipeline(combined_filters)
             except Exception as error:
                 fail_active_stage(progress_run_id or "", progress_case_id or "", str(error))
                 raise
 
+            first_trace = sres.trace or ""
+            retry_filters: List[str] = []
+            retry_used = False
+            if retry_on_no_data and not sres.ok and "Retriever:count=0" in first_trace:
+                retry_filters = _extract_fallback_tokens(question)
+                if retry_filters and retry_filters != combined_filters:
+                    retry_used = True
+                    set_stage(
+                        progress_run_id or "", progress_case_id or "", 2, "running",
+                        f"원본 질문 핵심어로 재검색 중: {', '.join(retry_filters)}",
+                    )
+                    try:
+                        sres = await call_pipeline(retry_filters)
+                    except Exception as error:
+                        fail_active_stage(progress_run_id or "", progress_case_id or "", str(error))
+                        raise
+
+        intent["applied_filters"] = combined_filters
+        intent["fallback_filters"] = retry_filters
+        intent["retry_used"] = retry_used
+        intent["retrieval_attempts"] = 2 if retry_used else 1
+
         total_elapsed = time.perf_counter() - pipeline_started
         print(f"[파이프라인] 전체 분석 완료 ({total_elapsed:.2f}초)", flush=True)
-        stage_trace = (
-            f"Timing:Interpreter={interpreter_elapsed:.2f}s; "
-            f"{sres.trace or ''}; Timing:TotalPipeline={total_elapsed:.2f}s"
-        )
+        trace_parts = [f"Timing:Interpreter={interpreter_elapsed:.2f}s"]
+        if retry_used:
+            trace_parts.append(first_trace.replace("Retriever:count", "Retriever:first_count"))
+            trace_parts.append(f"Retriever:retry_filters={','.join(retry_filters)}")
+        trace_parts.append(sres.trace or "")
+        trace_parts.append(f"Timing:TotalPipeline={total_elapsed:.2f}s")
+        stage_trace = "; ".join(part.strip("; ") for part in trace_parts if part)
         return {
             "ok": sres.ok,
+            "outcome": "completed" if sres.ok else "no_data" if "Retriever:count=0" in (sres.trace or "") else "failed",
             "summary": sres.summary or "",
             "policy": sres.policy or "",
             "intent_json": json.dumps(intent, ensure_ascii=False),
