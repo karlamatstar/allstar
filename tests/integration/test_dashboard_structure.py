@@ -86,6 +86,7 @@ def test_all_streamlit_external_api_entrypoints_use_required_confirmation_box():
     assert "disabled=not api_confirmed" in VIEWS
     assert "disabled=bool(pending) or not api_confirmed" in VIEWS
     assert '[class*="st-key-required_api_confirm_"]' in APP
+    assert VIEWS.index('"voc_chat_api_confirm"') < VIEWS.index("_render_profile_cards(list(profiles)")
 
 
 def test_voc_has_seven_clickable_stage_definitions():
@@ -93,14 +94,38 @@ def test_voc_has_seven_clickable_stage_definitions():
         assert english in VIEWS
     assert "_render_stage_explorer" in VIEWS
     assert "단계별 결과를 볼 테스트케이스" in VIEWS
-    assert 'st.container(key=f"stage_scroll_{safe_key}")' in VIEWS
+    assert 'scroll_mode = "interactive" if interactive else "progress"' in VIEWS
+    assert 'st.container(key=f"stage_scroll_{scroll_mode}_{safe_key}")' in VIEWS
     assert "horizontal=True" in VIEWS
+    assert 'st.container(horizontal=True, gap="small", key=f"stage_top_{safe_key}")' in VIEWS
+    assert 'st.container(width=180, key=f"stage_top_cell_{safe_key}_{index}")' in VIEWS
+    assert 'st.container(width=26, key=f"stage_top_arrow_{safe_key}_{index}")' in VIEWS
     assert 'st.container(width=180, key=f"stage_cell_{safe_key}_{index}")' in VIEWS
     assert 'st.container(width=26, key=f"stage_arrow_{safe_key}_{index}")' in VIEWS
     assert 'f"{symbols[state]} {index + 1}. {korean}\\n({english}) {state_labels[state]}"' in VIEWS
     assert '[class*="st-key-stage_arrow_"]' in APP
     assert '[class*="st-key-stage_buttons_"] [data-testid="stMarkdownContainer"]' not in APP
     assert "columns = st.columns([4, .7" not in VIEWS
+
+
+def test_voc_execution_cards_reserve_status_height_without_moving_buttons():
+    assert "profile-card profile-execution-card" in VIEWS
+    assert "profile-card-stack" in VIEWS
+    assert "profile-status-slot is-empty" in VIEWS
+    assert "profile-status-badge profile-status-" in VIEWS
+    assert ".profile-execution-card {height:17rem; padding-bottom:14px;}" in APP
+    assert ".profile-execution-card {height:19rem;}" in APP
+
+
+def test_voc_chat_confirmation_controls_visual_selection_and_messenger_layout():
+    assert "is_selected = confirmed and selected == profile" in VIEWS
+    assert "disabled=disabled or not confirmed or is_selected or not available" in VIEWS
+    assert 'type="primary" if confirmed and not is_selected and available and not disabled else "secondary"' in VIEWS
+    assert "profile-status-selected" in VIEWS
+    assert "profile-selected" in VIEWS
+    assert "with st.container(height=520, border=True, autoscroll=True):" in VIEWS
+    assert "VOC 관련 질문을 입력하면 이 영역에 메신저 형태로 대화" in VIEWS
+    assert '"meta": f"사용자 · {_local_time_text()}"' in VIEWS
 
 
 def test_voc_report_manifest_changes_trigger_full_app_refresh():

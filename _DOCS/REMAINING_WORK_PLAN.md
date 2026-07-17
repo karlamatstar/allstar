@@ -105,22 +105,21 @@
 
 ## 6. 모니터링 화면 완성
 
-상태: **Grafana 4개 하위 탭과 VOC JSON 2개 구현, 실제 Docker 데이터 검증 필요**
+상태: **Grafana 4개 하위 탭과 VOC JSON 2개 구현, VOC A~D 실데이터·영구 보존 검증 완료**
 
 구현 완료:
 
 - 통합 대시보드에 상위 `모니터링` 탭을 두고 선택 시 바로 Grafana 4개 하위 탭 표시
 - 기존 AI 상담 실시간 운영·K6 성능 부하 시험 Grafana 2개 임베드
 - VOC 실시간 운영·VOC QA·A~D 비교 Grafana JSON 2개 작성 및 임베드
-- A~D별 요청 수·성공률·지연시간 비교
+- A~D 정식 보고서 기반 평균 점수·판정 분포·처리시간·항목별 달성률·케이스별 결과 비교
+- Prometheus `prometheus_data` 영구 볼륨과 재시작 전 시계열 보존 검증
 
 남은 작업:
 
-- Docker 전체 시작 후 신규 UID 2개의 자동 프로비저닝 확인
-- 실제 VOC 요청 이후 Prometheus 쿼리와 Grafana 패널 값 확인
 - 에이전트별 처리시간과 검색 결과 0건을 Prometheus 개별 지표로 추가
 - API 실패와 Judge 판정 세부 분포 패널 보강
-- 배치 QA 전용 지표를 실시간 Grafana에 추가할지 운영 방식 검토
+- AWS 배포 전 Prometheus 장기 보존 기간·접근 권한·알림 정책 검토
 
 총 4개 화면의 탭 이름, UID, 빈 상태 및 완료 기준은 `INTEGRATED_GRAFANA_DASHBOARD_REQUIREMENTS.md`를 따른다.
 

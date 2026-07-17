@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -63,8 +64,22 @@ SCORE_LABELS = {
     "groundedness_score": "근거성",
     "helpfulness_score": "유용성",
     "safety_score": "안전성",
-    "understandability_score": "이해가능성",
+    "understandability_score": "이해 가능성",
 }
+SCORE_DESCRIPTIONS = {
+    "정확성": "질문에 사실상 정확하게 답했는지",
+    "근거성": "제공된 자료와 근거에 기반한 답변인지",
+    "유용성": "사용자의 문제 해결에 도움이 되는지",
+    "안전성": "위험하거나 부적절한 내용이 없는지",
+    "이해 가능성": "표현이 명확하고 읽기 쉬운지",
+}
+MODEL_LABELS = {
+    "api": "서버 연결 방식(API)",
+    "api_based": "서버 연결 방식(API)",
+    "rule": "규칙 기반",
+    "rule_based": "규칙 기반",
+}
+AI_CHAT_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="allstar-ai-chat")
 STAGES = [
     ("Interpreter", "질문 의도 분석"),
     ("Retriever", "관련 의견 검색"),
@@ -184,12 +199,144 @@ def _render_dataframe(df: pd.DataFrame, height: int = 330) -> None:
     st.dataframe(_localize_timestamp_columns(df), width="stretch", height=height, hide_index=True)
 
 
-def _render_decision_metrics(df: pd.DataFrame, decision_column: str = "overall_decision") -> None:
+def _render_decision_metrics(
+    df: pd.DataFrame,
+    decision_column: str = "overall_decision",
+    item_column: str | None = None,
+    item_label: str = "대상",
+) -> None:
     values = df.get(decision_column, pd.Series(dtype=str)).fillna("N/A")
-    cols = st.columns(5)
-    for col, label in zip(cols, ["전체", "PASS", "REVIEW", "FAIL", "N/A"]):
-        count = len(values) if label == "전체" else int((values == label).sum())
+    metrics: list[tuple[str, int]] = []
+    if item_column and item_column in df:
+        metrics.append((item_label, int(df[item_column].nunique())))
+        metrics.append(("평가 결과", len(values)))
+    else:
+        metrics.append(("전체", len(values)))
+    metrics.extend((label, int((values == label).sum())) for label in ["PASS", "REVIEW", "FAIL", "N/A"])
+    cols = st.columns(len(metrics))
+    for col, (label, count) in zip(cols, metrics):
         col.metric(label, count)
+
+
+def _model_label(value: Any) -> str:
+    return MODEL_LABELS.get(str(value), str(value))
+
+
+def _change_quality_page(state_key: str, delta: int) -> None:
+    st.session_state[state_key] = max(0, int(st.session_state.get(state_key, 0)) + delta)
+
+
+def _render_grouped_quality_chart(
+    df: pd.DataFrame,
+    *,
+    group_column: str,
+    label_column: str,
+    item_label: str,
+    model_column: str,
+    key: str,
+    newest_first: bool = False,
+) -> None:
+    """질문·케이스 단위를 보존하면서 두 답변 결과를 좌우 막대와 페이지로 보여준다."""
+    if group_column not in df or label_column not in df or model_column not in df:
+        st.info("비교 그래프에 필요한 데이터가 아직 기록되지 않았습니다.")
+        return
+
+    source = df.copy()
+    source = source[source[group_column].notna()].copy()
+    if source.empty:
+        st.info("표시할 비교 결과가 없습니다.")
+        return
+    source["_model_label"] = source[model_column].map(_model_label)
+    source["_group_id"] = source[group_column].astype(str)
+
+    groups = source.drop_duplicates("_group_id", keep="last")
+    if newest_first and "timestamp" in groups:
+        groups = groups.assign(_sort_time=pd.to_datetime(groups["timestamp"], errors="coerce", utc=True))
+        groups = groups.sort_values("_sort_time", ascending=False)
+    group_ids = groups["_group_id"].tolist()
+
+    size_key = f"{key}_page_size"
+    page_key = f"{key}_page"
+    selected_size = st.selectbox(
+        f"한 화면에 표시할 {item_label} 수",
+        [5, 10, 20, "전체"],
+        index=1,
+        key=size_key,
+    )
+    page_size = len(group_ids) if selected_size == "전체" else int(selected_size)
+    page_size = max(page_size, 1)
+    total_pages = max(1, (len(group_ids) + page_size - 1) // page_size)
+    st.session_state.setdefault(page_key, 0)
+    page = min(max(int(st.session_state[page_key]), 0), total_pages - 1)
+    st.session_state[page_key] = page
+
+    controls = st.columns([1, 2, 1])
+    controls[0].button(
+        "← 이전",
+        key=f"{key}_previous",
+        disabled=page == 0,
+        width="stretch",
+        on_click=_change_quality_page,
+        args=(page_key, -1),
+    )
+    controls[1].markdown(
+        f"<div style='text-align:center;padding:.45rem 0;font-weight:700'>{page + 1} / {total_pages} 페이지 · 총 {len(group_ids)}{item_label}</div>",
+        unsafe_allow_html=True,
+    )
+    controls[2].button(
+        "다음 →",
+        key=f"{key}_next",
+        disabled=page >= total_pages - 1,
+        width="stretch",
+        on_click=_change_quality_page,
+        args=(page_key, 1),
+    )
+
+    visible_ids = group_ids[page * page_size:(page + 1) * page_size]
+    visible = source[source["_group_id"].isin(visible_ids)].copy()
+    visible["_group_order"] = visible["_group_id"].map({value: index for index, value in enumerate(visible_ids)})
+    model_order = ["서버 연결 방식(API)", "규칙 기반"]
+    visible["_model_order"] = visible["_model_label"].map({value: index for index, value in enumerate(model_order)}).fillna(len(model_order))
+    visible = visible.sort_values(["_group_order", "_model_order"])
+
+    if newest_first and "timestamp" in visible:
+        visible["_item_label"] = visible.apply(
+            lambda row: f"{str(row[label_column])[:34]}<br>{_local_time_text(row.get('timestamp'))}", axis=1
+        )
+    else:
+        visible["_item_label"] = visible[label_column].astype(str)
+    item_order = visible.drop_duplicates("_group_id")["_item_label"].tolist()
+    visible["_bar_text"] = visible.apply(
+        lambda row: f"{_model_label(row.get(model_column))}<br>{row.get('overall_decision', 'N/A')} · {row.get('total_score', 'N/A')}",
+        axis=1,
+    )
+    hover_columns = [
+        column for column in (
+            label_column, model_column, "overall_decision", "total_score", "ai_answer", "summary", "category", "test_type"
+        ) if column in visible
+    ]
+    figure = px.bar(
+        visible,
+        x="_item_label",
+        y="total_score",
+        color="overall_decision",
+        pattern_shape="_model_label",
+        barmode="group",
+        text="_bar_text",
+        color_discrete_map=DECISION_COLORS,
+        category_orders={"_item_label": item_order, "_model_label": model_order},
+        hover_data=hover_columns,
+    )
+    figure.update_traces(textposition="outside", cliponaxis=False)
+    figure.update_layout(
+        xaxis_title=item_label,
+        yaxis_title="종합점수",
+        yaxis_range=[0, 28],
+        legend_title_text="판정 · 답변 종류",
+        bargap=0.22,
+        margin=dict(t=40, b=40),
+    )
+    st.plotly_chart(figure, width="stretch", key=f"{key}_chart")
 
 
 def _next_case_id(cases: list[dict], digits: int) -> str:
@@ -310,18 +457,20 @@ def _status_stage_details(status: dict) -> list[Any]:
     ]
 
 
-def _render_stage_flow(states: list[str]) -> None:
+def _render_stage_flow(states: list[str], safe_key: str) -> None:
     state_labels = {"pending": "대기", "running": "처리 중", "done": "완료", "failed": "실패", "skipped": "건너뜀"}
-    nodes = []
-    for index, ((english, korean), state) in enumerate(zip(STAGES, states)):
-        nodes.append(
-            f"<div class='stage-node stage-{state}'><span>{index + 1}</span>"
-            f"<b>{html.escape(korean)}</b><small>{html.escape(english)}</small>"
-            f"<em>{state_labels[state]}</em></div>"
-        )
-        if index < len(STAGES) - 1:
-            nodes.append("<div class='stage-arrow' aria-hidden='true'>→</div>")
-    st.markdown(f"<div class='stage-flow'>{''.join(nodes)}</div>", unsafe_allow_html=True)
+    with st.container(horizontal=True, gap="small", key=f"stage_top_{safe_key}"):
+        for index, ((english, korean), state) in enumerate(zip(STAGES, states)):
+            with st.container(width=180, key=f"stage_top_cell_{safe_key}_{index}"):
+                st.markdown(
+                    f"<div class='stage-node stage-{state}'><span>{index + 1}</span>"
+                    f"<b>{html.escape(korean)}</b><small>{html.escape(english)}</small>"
+                    f"<em>{state_labels[state]}</em></div>",
+                    unsafe_allow_html=True,
+                )
+            if index < len(STAGES) - 1:
+                with st.container(width=26, key=f"stage_top_arrow_{safe_key}_{index}"):
+                    st.markdown("<div class='stage-arrow' aria-hidden='true'>→</div>", unsafe_allow_html=True)
 
 
 def _render_stage_explorer(status: dict, key_prefix: str, interactive: bool = True) -> None:
@@ -332,8 +481,9 @@ def _render_stage_explorer(status: dict, key_prefix: str, interactive: bool = Tr
     selected_key = f"{key_prefix}_selected_stage"
     st.session_state.setdefault(selected_key, 0)
     safe_key = re.sub(r"[^a-zA-Z0-9_-]", "_", key_prefix)
-    with st.container(key=f"stage_scroll_{safe_key}"):
-        _render_stage_flow(states)
+    scroll_mode = "interactive" if interactive else "progress"
+    with st.container(key=f"stage_scroll_{scroll_mode}_{safe_key}"):
+        _render_stage_flow(states, safe_key)
         if interactive:
             with st.container(horizontal=True, gap="small", key=f"stage_buttons_{safe_key}"):
                 for index, (english, korean) in enumerate(STAGES):
@@ -475,25 +625,23 @@ def _render_ai_data_tab(kind: str, status: dict[str, Any]) -> None:
             else:
                 st.info("아직 자동 생성된 AI 에이전트 챗봇 품질 보고서가 없습니다.")
         else:
-            _render_decision_metrics(live_df)
-            chart_df = live_df.copy()
-            if "timestamp" in chart_df:
-                chart_df["표시 시간"] = chart_df["timestamp"].map(_local_time_text)
-            chart = px.bar(
-                chart_df,
-                x="표시 시간" if "표시 시간" in chart_df else chart_df.index,
-                y="total_score",
-                color="overall_decision",
-                color_discrete_map=DECISION_COLORS,
-                hover_data=[column for column in ("question", "summary") if column in chart_df],
+            _render_decision_metrics(live_df, item_column="request_id", item_label="대화")
+            st.caption("대화 한 건마다 서버 연결 방식(API)과 규칙 기반 평가가 각각 한 건씩 기록됩니다.")
+            _render_grouped_quality_chart(
+                live_df,
+                group_column="request_id",
+                label_column="question",
+                item_label="질문",
+                model_column="model",
+                key="ai_live_quality",
+                newest_first=True,
             )
-            st.plotly_chart(chart, width="stretch")
     elif kind == "breakdown":
         _render_ai_report_status(status, "breakdown")
-        _render_score_breakdown(live_df, model_column="model")
+        _render_score_breakdown(live_df, model_column="model", key="ai_live_breakdown")
     elif kind == "detail":
         _render_ai_report_status(status, "detail")
-        _render_quality_detail(live_df)
+        _render_quality_detail(live_df, key="ai_live_detail")
 
 
 def _render_ai_data_tab_with_refresh(kind: str, initially_active: bool) -> None:
@@ -509,6 +657,48 @@ def _render_ai_data_tab_with_refresh(kind: str, initially_active: bool) -> None:
     _poll_ai_data_tab()
 
 
+def _request_ai_chat(question: str) -> dict[str, Any]:
+    """화면을 막지 않고 AI 에이전트 답변을 기다리기 위한 백그라운드 요청이다."""
+    try:
+        with httpx.Client(timeout=TIMEOUT) as client:
+            response = client.post(f"{PORTFOLIO_API}/chat", json={"question": question})
+            response.raise_for_status()
+            return {"ok": True, "body": response.json()}
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def _complete_ai_chat_request(history: list[dict[str, Any]], pending: dict[str, Any]) -> bool:
+    """완료된 백그라운드 요청을 대화 기록으로 옮기고 처리 여부를 반환한다."""
+    future = pending.get("future")
+    if not isinstance(future, Future) or not future.done():
+        return False
+    try:
+        result = future.result()
+    except Exception as error:
+        result = {"ok": False, "error": str(error)}
+    response_time = _local_time_text()
+    if result.get("ok"):
+        body = result.get("body") or {}
+        history.append({
+            "role": "assistant", "content": body.get("answer", "응답이 없습니다."),
+            "label": "서버 연결 방식(API)", "timestamp": response_time,
+        })
+        if body.get("rule_answer"):
+            history.append({
+                "role": "assistant", "content": body["rule_answer"],
+                "label": "규칙 기반", "timestamp": response_time,
+            })
+        _clear_ai_live_caches()
+    else:
+        history.append({
+            "role": "assistant", "content": f"AI 에이전트 서버 연결 실패: {result.get('error', '원인 없음')}",
+            "label": "오류", "timestamp": response_time,
+        })
+    st.session_state.pop("ai_chat_pending", None)
+    return True
+
+
 def render_ai_chat() -> None:
     _section("AI 에이전트 챗봇", "기존 포트폴리오의 실시간 대화·로그·품질 분석 기능을 통합한 화면입니다.")
     tab_chat, tab_log, tab_quality, tab_breakdown, tab_detail = st.tabs(
@@ -516,49 +706,42 @@ def render_ai_chat() -> None:
     )
     with tab_chat:
         history = st.session_state.setdefault("ai_chat_history", [])
-        with st.container(height=520, border=True, autoscroll=True):
-            if not history:
-                st.caption("AI 에이전트에게 질문하면 이 영역에 메신저 형태로 대화가 표시됩니다.")
-            for message in history:
-                with st.chat_message(message["role"]):
-                    st.write(message["content"])
-                    label = message.get("label")
-                    time_text = message.get("timestamp")
-                    if label or time_text:
-                        st.caption(" · ".join(value for value in (label, time_text) if value))
         api_confirmed = _required_api_confirmation(
             "ai_chat_api_confirm",
             "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
         )
-        question = st.chat_input(
-            "AI 에이전트에게 질문하세요",
-            key="ai_chat_input",
-            disabled=not api_confirmed,
-        )
+        pending = st.session_state.get("ai_chat_pending")
+        if pending and _complete_ai_chat_request(history, pending):
+            st.rerun()
+        with st.container(key="ai_chat_panel"):
+            with st.container(height=520, border=True, autoscroll=True):
+                if not history:
+                    st.caption("AI 에이전트에게 질문하면 이 영역에 메신저 형태로 대화가 표시됩니다.")
+                for message in history:
+                    with st.chat_message(message["role"]):
+                        st.write(message["content"])
+                        label = message.get("label")
+                        time_text = message.get("timestamp")
+                        if label or time_text:
+                            st.caption(" · ".join(value for value in (label, time_text) if value))
+                if pending:
+                    with st.chat_message("assistant"):
+                        st.markdown("<div class='ai-typing-indicator'>답변을 입력하고 있습니다<span>...</span></div>", unsafe_allow_html=True)
+            question = st.chat_input(
+                "AI 에이전트에게 질문하세요",
+                key="ai_chat_input",
+                disabled=not api_confirmed or bool(pending),
+            )
         if question:
             history.append({"role": "user", "content": question, "label": "사용자", "timestamp": _local_time_text()})
-            try:
-                with st.spinner("답변을 생성하고 있습니다..."):
-                    with httpx.Client(timeout=TIMEOUT) as client:
-                        response = client.post(f"{PORTFOLIO_API}/chat", json={"question": question})
-                        response.raise_for_status()
-                        body = response.json()
-                response_time = _local_time_text()
-                history.append({
-                    "role": "assistant", "content": body.get("answer", "응답이 없습니다."),
-                    "label": "서버 연결 방식(API)", "timestamp": response_time,
-                })
-                if body.get("rule_answer"):
-                    history.append({
-                        "role": "assistant", "content": body["rule_answer"],
-                        "label": "규칙 기반", "timestamp": response_time,
-                    })
-                _clear_ai_live_caches()
-            except Exception as error:
-                history.append({
-                    "role": "assistant", "content": f"AI 에이전트 서버 연결 실패: {error}",
-                    "label": "오류", "timestamp": _local_time_text(),
-                })
+            st.session_state.ai_chat_pending = {
+                "question": question,
+                "started_at": time.monotonic(),
+                "future": AI_CHAT_EXECUTOR.submit(_request_ai_chat, question),
+            }
+            st.rerun()
+        if pending:
+            time.sleep(0.6)
             st.rerun()
 
     initially_active = bool(_ai_report_status().get("active_count"))
@@ -572,29 +755,46 @@ def render_ai_chat() -> None:
             _render_ai_data_tab_with_refresh(kind, initially_active)
 
 
-def _render_profile_cards(profiles: list[dict], selected: str, disabled: bool, key_prefix: str) -> str:
+def _render_profile_cards(
+    profiles: list[dict],
+    selected: str,
+    disabled: bool,
+    key_prefix: str,
+    confirmed: bool,
+) -> str:
     columns = st.columns(4)
     for column, profile in zip(columns, profiles):
         generation = profile["generation"]
         judge = profile["judge"]
+        available = bool(profile.get("available", True))
+        is_selected = confirmed and selected == profile["profile_id"]
+        status_label = "처리 중" if is_selected and disabled else "선택됨" if is_selected else ""
+        status_slot = (
+            f"<div class='profile-status-slot'><span class='profile-status-badge profile-status-selected'>{status_label}</span></div>"
+            if status_label
+            else "<div class='profile-status-slot is-empty' aria-hidden='true'></div>"
+        )
+        card_state = " profile-selected" if is_selected else ""
         with column:
             st.markdown(
-                f"<div class='profile-card'><div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
+                f"<div class='profile-card-stack'>{status_slot}<div class='profile-card{card_state}'>"
+                f"<div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
                 f"<div class='profile-summary'>{html.escape(profile['summary'])}</div><hr>"
                 f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / {reasoning_text(generation['reasoning'])}<br>"
-                f"독립 품질 평가(Judge): {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}</div></div>",
+                f"독립 품질 평가(Judge): {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}</div></div></div>",
                 unsafe_allow_html=True,
             )
             if st.button(
-                "✓ 선택됨" if selected == profile["profile_id"] else "선택",
+                "✓ 선택됨" if is_selected else "선택",
                 key=f"{key_prefix}_{profile['profile_id']}",
-                disabled=disabled or not profile.get("available", True),
+                type="primary" if confirmed and not is_selected and available and not disabled else "secondary",
+                disabled=disabled or not confirmed or is_selected or not available,
                 width="stretch",
             ):
                 selected = profile["profile_id"]
                 st.session_state[f"{key_prefix}_selected"] = selected
                 st.rerun()
-            if not profile.get("available", True):
+            if not available:
                 st.caption("필수 키 설정 필요: " + ", ".join(profile.get("missing_keys", [])))
     return selected
 
@@ -605,60 +805,73 @@ def render_voc_chat() -> None:
     pending = st.session_state.get("voc_pending")
     selected_key = "voc_chat_profile_selected"
     selected = st.session_state.setdefault(selected_key, "A")
-    _render_profile_cards(list(profiles), selected, bool(pending), "voc_chat_profile")
-    st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델(Judge)의 조합입니다. 현재 질문 한 건에만 적용됩니다.")
-
-    for message in st.session_state.setdefault("voc_chat_history", []):
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-            if message.get("meta"):
-                st.caption(message["meta"])
-            if message.get("status"):
-                with st.expander("7단계 처리 결과", expanded=False):
-                    _render_stage_explorer(message["status"], f"voc_history_{message['status']['request_id']}")
-
-    if pending:
-        status = _get_json(f"{VOC_API}/chat/{pending}/status")
-        if isinstance(status, dict):
-            st.markdown("### 현재 질문 처리 과정")
-            _render_stage_explorer(status, f"voc_pending_{pending}")
-            st.progress(100 if status["status"] in {"completed", "failed"} else min(95, int(status.get("elapsed_seconds", 0)) + 1))
-            st.caption(f"{status['current_stage']} · {status.get('elapsed_seconds', 0):.1f}초 · 프로필 {status['profile_id']}")
-            if status["status"] in {"completed", "failed"}:
-                result = status.get("result") or {}
-                judge = status.get("judge") or {}
-                answer = (
-                    result.get("answer") or result.get("policy") or result.get("summary")
-                    if status["status"] == "completed"
-                    else f"처리 실패: {status.get('error', '원인 없음')}"
-                )
-                meta = f"프로필 {status['profile_id']} · {status.get('elapsed_seconds', 0):.1f}초 · Judge {judge.get('total', 'N/A')} / {judge.get('verdict', 'N/A')}"
-                st.session_state.voc_chat_history.append({"role": "assistant", "content": answer or "결과 없음", "meta": meta, "status": status})
-                st.session_state.voc_pending = None
-                st.rerun()
-            time.sleep(1)
-            st.rerun()
-        else:
-            st.error("VOC 요청 상태를 확인할 수 없습니다.")
-
     api_confirmed = _required_api_confirmation(
         "voc_chat_api_confirm",
         "메시지 전송 시 외부 AI API 호출과 비용이 발생할 수 있음을 확인했습니다.",
     )
+    _render_profile_cards(list(profiles), selected, bool(pending), "voc_chat_profile", api_confirmed)
+    st.info("A~D는 답변 생성 모델과 독립 품질 평가 모델(Judge)의 조합입니다. 현재 질문 한 건에만 적용됩니다.")
+
+    history = st.session_state.setdefault("voc_chat_history", [])
+    with st.container(height=520, border=True, autoscroll=True):
+        if not history:
+            st.caption("VOC 관련 질문을 입력하면 이 영역에 메신저 형태로 대화와 7단계 처리 결과가 표시됩니다.")
+        for message in history:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+                if message.get("meta"):
+                    st.caption(message["meta"])
+                if message.get("status"):
+                    with st.expander("7단계 처리 결과", expanded=False):
+                        _render_stage_explorer(message["status"], f"voc_history_{message['status']['request_id']}")
+
+        if pending:
+            status = _get_json(f"{VOC_API}/chat/{pending}/status")
+            if isinstance(status, dict):
+                st.markdown("### 현재 질문 처리 과정")
+                _render_stage_explorer(status, f"voc_pending_{pending}")
+                st.progress(100 if status["status"] in {"completed", "failed"} else min(95, int(status.get("elapsed_seconds", 0)) + 1))
+                st.caption(f"{status['current_stage']} · {status.get('elapsed_seconds', 0):.1f}초 · 프로필 {status['profile_id']}")
+                if status["status"] in {"completed", "failed"}:
+                    result = status.get("result") or {}
+                    judge = status.get("judge") or {}
+                    answer = (
+                        result.get("answer") or result.get("policy") or result.get("summary")
+                        if status["status"] == "completed"
+                        else f"처리 실패: {status.get('error', '원인 없음')}"
+                    )
+                    meta = (
+                        f"프로필 {status['profile_id']} · {status.get('elapsed_seconds', 0):.1f}초 · "
+                        f"Judge {judge.get('total', 'N/A')} / {judge.get('verdict', 'N/A')} · {_local_time_text()}"
+                    )
+                    st.session_state.voc_chat_history.append({"role": "assistant", "content": answer or "결과 없음", "meta": meta, "status": status})
+                    st.session_state.voc_pending = None
+                    st.rerun()
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.error("VOC 요청 상태를 확인할 수 없습니다.")
+
     question = st.chat_input(
         "VOC 관련 단발 질문을 입력하세요",
         key="voc_chat_input",
         disabled=bool(pending) or not api_confirmed,
     )
     if question:
-        st.session_state.voc_chat_history.append({"role": "user", "content": question})
+        st.session_state.voc_chat_history.append({
+            "role": "user", "content": question, "meta": f"사용자 · {_local_time_text()}"
+        })
         try:
             with httpx.Client(timeout=10.0) as client:
                 response = client.post(f"{VOC_API}/chat", json={"question": question, "profile_id": st.session_state[selected_key]})
                 response.raise_for_status()
                 st.session_state.voc_pending = response.json()["request_id"]
         except Exception as error:
-            st.session_state.voc_chat_history.append({"role": "assistant", "content": f"VOC 서버 요청 실패: {error}"})
+            st.session_state.voc_chat_history.append({
+                "role": "assistant",
+                "content": f"VOC 서버 요청 실패: {error}",
+                "meta": f"오류 · {_local_time_text()}",
+            })
         st.rerun()
 
 
@@ -818,7 +1031,11 @@ def render_reports() -> None:
             )
 
 
-def _render_score_breakdown(df: pd.DataFrame | None, model_column: str = "model_type") -> None:
+def _render_score_breakdown(
+    df: pd.DataFrame | None,
+    model_column: str = "model_type",
+    key: str = "quality_breakdown",
+) -> None:
     if df is None or df.empty:
         st.info("표시할 품질 데이터가 없습니다.")
         return
@@ -826,26 +1043,94 @@ def _render_score_breakdown(df: pd.DataFrame | None, model_column: str = "model_
     if not available_scores:
         st.info("품질 항목 점수가 아직 기록되지 않았습니다.")
         return
-    scored = df[df.get("overall_decision", "") != "N/A"].copy()
+    decisions = df.get("overall_decision", pd.Series(index=df.index, dtype=str)).fillna("미채점")
+    scored = df[decisions.isin(["PASS", "REVIEW", "FAIL"])].copy()
     if scored.empty:
-        st.info("채점 가능한 결과가 없습니다. N/A는 평균에서 제외됩니다.")
+        st.info("채점 가능한 결과가 없습니다. N/A와 미채점은 평균에서 제외됩니다.")
         return
     if model_column not in scored:
         scored[model_column] = "전체"
-    averages = scored.groupby(model_column)[available_scores].mean().rename(columns=SCORE_LABELS).reset_index()
-    radar = averages.melt(id_vars=model_column, var_name="품질 항목", value_name="점수")
-    figure = px.line_polar(radar, r="점수", theta="품질 항목", color=model_column, line_close=True, range_r=[0, 5])
-    st.plotly_chart(figure, width="stretch")
+    for column in available_scores:
+        scored[column] = pd.to_numeric(scored[column], errors="coerce")
+    averages = scored.groupby(model_column)[available_scores].mean()
+    ordered_models = [
+        model for model in ("api", "api_based", "rule", "rule_based") if model in averages.index
+    ]
+    ordered_models.extend(model for model in averages.index if model not in ordered_models)
+    averages = averages.loc[ordered_models]
+    average_labels = averages.rename(index=_model_label, columns=SCORE_LABELS)
+
+    radar_source = average_labels.reset_index(names="답변 종류").melt(
+        id_vars="답변 종류", var_name="품질 항목", value_name="점수"
+    )
+    figure = px.line_polar(
+        radar_source,
+        r="점수",
+        theta="품질 항목",
+        color="답변 종류",
+        line_close=True,
+        range_r=[0, 5],
+        markers=True,
+    )
+    figure.update_traces(fill="toself", opacity=.72)
+    figure.update_layout(margin=dict(t=45, b=35, l=35, r=35), legend_title_text="답변 종류")
+
+    model_labels = average_labels.index.tolist()
+    rows: list[dict[str, Any]] = []
+    for score_label in [SCORE_LABELS[column] for column in available_scores] + ["품질 평균"]:
+        row: dict[str, Any] = {"품질 항목": score_label}
+        model_values: list[tuple[str, float]] = []
+        for label in model_labels:
+            value = (
+                float(average_labels.loc[label].mean())
+                if score_label == "품질 평균"
+                else float(average_labels.loc[label, score_label])
+            )
+            row[label] = round(value, 2)
+            model_values.append((label, value))
+        if len(model_values) == 2:
+            difference = model_values[0][1] - model_values[1][1]
+            if abs(difference) < .005:
+                row["점수 차이"] = "동일"
+            else:
+                winner = "API" if difference > 0 and "API" in model_values[0][0] else (
+                    "규칙 기반" if difference < 0 and "규칙" in model_values[1][0] else model_values[0 if difference > 0 else 1][0]
+                )
+                row["점수 차이"] = f"{winner} +{abs(difference):.2f}"
+        else:
+            row["점수 차이"] = "-"
+        rows.append(row)
+    score_table = pd.DataFrame(rows)
+
+    with st.container(key=f"{key}_comparison"):
+        left, right = st.columns([1.08, 1])
+        with left:
+            st.markdown("#### 품질 항목별 형태")
+            st.caption("레이더 바깥쪽에 가까울수록 평균점수가 높습니다. 점수 범위는 0~5점입니다.")
+            st.plotly_chart(figure, width="stretch", key=f"{key}_radar")
+        with right:
+            st.markdown("#### 정확한 평균점수")
+            counts = scored.groupby(model_column).size()
+            count_text = " · ".join(f"{_model_label(model)} {int(count)}건" for model, count in counts.items())
+            st.caption(f"N/A·미채점 제외 · 평균 계산 평가 수: {count_text}")
+            styled = score_table.style.highlight_max(axis=1, subset=model_labels, color="#dff5e7").format(
+                {label: "{:.2f}" for label in model_labels}
+            )
+            st.dataframe(styled, width="stretch", hide_index=True, height=285)
+            descriptions = "<br>".join(
+                f"<b>{label}</b>: {description}" for label, description in SCORE_DESCRIPTIONS.items()
+            )
+            st.markdown(f"<div class='quality-score-help'>{descriptions}</div>", unsafe_allow_html=True)
 
 
-def _render_quality_detail(df: pd.DataFrame | None) -> None:
+def _render_quality_detail(df: pd.DataFrame | None, key: str = "quality_detail") -> None:
     if df is None or df.empty:
         st.info("표시할 상세 결과가 없습니다.")
         return
     view = df.drop(columns=["request_id"], errors="ignore").copy()
     if "overall_decision" in view:
         decisions = ["전체", *sorted(view["overall_decision"].dropna().unique().tolist())]
-        selected = st.selectbox("판정 필터", decisions)
+        selected = st.selectbox("판정 필터", decisions, key=f"{key}_decision")
         if selected != "전체":
             view = view[view["overall_decision"] == selected]
     _render_dataframe(view, height=520)
@@ -957,21 +1242,25 @@ def render_ai_testcases() -> None:
         if df is None or df.empty:
             st.info("아직 배치 품질 보고서가 없습니다.")
         else:
-            _render_decision_metrics(df)
-            figure = px.bar(
-                df, x="case_id", y="total_score", color="overall_decision", facet_row="model_type",
-                color_discrete_map=DECISION_COLORS, hover_data=["category", "test_type", "summary"],
+            _render_decision_metrics(df, item_column="case_id", item_label="테스트케이스")
+            st.caption("테스트케이스 한 건마다 서버 연결 방식(API)과 규칙 기반 평가가 각각 한 건씩 기록됩니다.")
+            _render_grouped_quality_chart(
+                df,
+                group_column="case_id",
+                label_column="case_id",
+                item_label="테스트케이스",
+                model_column="model_type",
+                key="ai_batch_quality",
             )
-            st.plotly_chart(figure, width="stretch")
     with tab_breakdown:
-        _render_score_breakdown(df)
+        _render_score_breakdown(df, key="ai_batch_breakdown")
         if df is not None and not df.empty:
             scored = df[df["overall_decision"] != "N/A"]
             if not scored.empty:
                 rates = scored.groupby(["model_type", "test_type"])["overall_decision"].apply(lambda values: round((values == "PASS").mean() * 100, 1)).reset_index(name="통과율")
                 st.plotly_chart(px.bar(rates, x="test_type", y="통과율", color="model_type", barmode="group", range_y=[0, 100]), width="stretch")
     with tab_detail:
-        _render_quality_detail(df)
+        _render_quality_detail(df, key="ai_batch_detail")
 
 
 def _csv_list(value: str) -> list[str]:
@@ -1216,6 +1505,36 @@ def _voc_run_metrics(log: dict | None) -> tuple[float | None, float | None, int]
     return run_seconds, average, len(times)
 
 
+def _scroll_to_voc_run_bottom(run_id: str) -> None:
+    """새 VOC 실행 영역이 생긴 직후 화면을 해당 영역의 맨 아래로 한 번 이동한다."""
+    safe_run_id = re.sub(r"[^a-zA-Z0-9_-]", "_", run_id)
+    anchor_id = f"voc-run-bottom-{safe_run_id}"
+    st.markdown(f"<div id='{anchor_id}'></div>", unsafe_allow_html=True)
+    components.html(
+        f"""
+        <script>
+        (() => {{
+            const move = (behavior) => {{
+                const parentDocument = window.parent.document;
+                const target = parentDocument.getElementById({json.dumps(anchor_id)});
+                if (!target) return;
+                const scroller = target.closest('[data-testid="stMain"]') || parentDocument.scrollingElement;
+                if (scroller && typeof scroller.scrollTo === "function") {{
+                    scroller.scrollTo({{top: scroller.scrollHeight, behavior}});
+                }} else {{
+                    target.scrollIntoView({{behavior, block: "end"}});
+                }}
+            }};
+            window.requestAnimationFrame(() => move("smooth"));
+            window.setTimeout(() => move("smooth"), 300);
+            window.setTimeout(() => move("auto"), 750);
+        }})();
+        </script>
+        """,
+        height=0,
+    )
+
+
 @st.fragment(run_every=1.0)
 def _render_voc_real_test(cases: list[dict]) -> None:
     total = len(cases)
@@ -1242,18 +1561,27 @@ def _render_voc_real_test(cases: list[dict]) -> None:
         generation, judge = profile["generation"], profile["judge"]
         with column:
             card_state = ""
-            status_badge = ""
+            status_label = ""
+            status_state = ""
             if active_profile == profile["profile_id"] and running:
                 card_state = " profile-running"
-                status_badge = "<div class='profile-status'>실행 중</div>"
+                status_label = "실행 중"
+                status_state = "running"
             elif active_profile == profile["profile_id"] and completed_pending:
                 card_state = " profile-completed"
-                status_badge = "<div class='profile-status'>완료 확인 대기</div>"
+                status_label = "완료 확인 대기"
+                status_state = "completed"
+            status_slot = (
+                f"<div class='profile-status-slot'><span class='profile-status-badge profile-status-{status_state}'>{status_label}</span></div>"
+                if status_label
+                else "<div class='profile-status-slot is-empty' aria-hidden='true'></div>"
+            )
             st.markdown(
-                f"<div class='profile-card{card_state}'>{status_badge}<div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
+                f"<div class='profile-card-stack'>{status_slot}<div class='profile-card profile-execution-card{card_state}'>"
+                f"<div class='profile-title'>{profile['profile_id']} · {html.escape(profile['title'])}</div>"
                 f"<div class='profile-summary'>{html.escape(profile['summary'])}</div><hr>"
                 f"<div class='profile-model'>답변 생성: {generation['provider']} / {generation['model']} / {reasoning_text(generation['reasoning'])}<br>"
-                f"독립 평가: {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}</div></div>",
+                f"독립 평가: {judge['provider']} / {judge['model']} / {reasoning_text(judge['reasoning'])}</div></div></div>",
                 unsafe_allow_html=True,
             )
             disabled = running or (not completed_pending and (not confirmed or not cases))
@@ -1281,6 +1609,7 @@ def _render_voc_real_test(cases: list[dict]) -> None:
                     run_id=run_id,
                 )
                 st.session_state.voc_running_profile = profile["profile_id"]
+                st.session_state.voc_scroll_to_run_id = run_id
                 st.session_state.pop("voc_profile_notice", None)
 
     if st.session_state.get("voc_profile_notice"):
@@ -1371,6 +1700,10 @@ def _render_voc_real_test(cases: list[dict]) -> None:
 
     with st.expander("실행 내용 보기", expanded=False):
         st.code(output[-12000:] or ("준비 중..." if running else "출력 없음"), language="text")
+
+    if st.session_state.get("voc_scroll_to_run_id") == run_id:
+        _scroll_to_voc_run_bottom(run_id)
+        st.session_state.pop("voc_scroll_to_run_id", None)
 
 
 def render_voc_testcases() -> None:

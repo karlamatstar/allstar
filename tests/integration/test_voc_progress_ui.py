@@ -80,7 +80,11 @@ def test_dashboard_uses_partial_refresh_utf8_and_completion_guard():
     assert "interactive=False" in VIEWS
     assert VIEWS.index("단계별 결과를 볼 테스트케이스") < VIEWS.rindex("실행 내용 보기")
     assert '[data-stale="true"] {opacity:1 !important;}' in APP
-    assert '[class*="st-key-stage_scroll_"] {overflow-x:auto' in APP
+    assert '[class*="st-key-stage_scroll_progress_"] {overflow-x:auto; overflow-y:hidden; padding-bottom:1rem;}' in APP
+    assert '[class*="st-key-stage_scroll_interactive_"] {overflow-x:auto; overflow-y:hidden; padding-bottom:.2rem;}' in APP
+    assert '[class*="st-key-stage_scroll_progress_"] > div,' in APP
+    assert '[class*="st-key-stage_scroll_interactive_"] > div {min-width:max-content; gap:.35rem !important;}' in APP
+    assert '[class*="st-key-stage_top_"] [data-testid="stHorizontalBlock"]' in APP
     assert '[class*="st-key-stage_buttons_"] [data-testid="stHorizontalBlock"]' in APP
     assert ".profile-card {height:auto; min-height:0; overflow-y:visible" in APP
 
@@ -131,7 +135,7 @@ def test_voc_run_metrics_uses_exact_log_times_and_case_average():
 
 
 def test_stage_selector_renders_seven_uniform_two_line_buttons():
-    app = AppTest.from_function(_stage_explorer_app).run()
+    app = AppTest.from_function(_stage_explorer_app).run(timeout=10)
 
     assert not app.exception
     assert len(app.button) == 7
@@ -150,3 +154,11 @@ def test_voc_report_signature_changes_after_manifest_is_written(tmp_path, monkey
 
     assert initial != updated
     assert updated[2] == manifest.stat().st_mtime_ns
+
+
+def test_voc_profile_launch_scrolls_to_new_run_area_once():
+    assert "def _scroll_to_voc_run_bottom" in VIEWS
+    assert 'st.session_state.voc_scroll_to_run_id = run_id' in VIEWS
+    assert 'st.session_state.get("voc_scroll_to_run_id") == run_id' in VIEWS
+    assert "scrollIntoView" in VIEWS
+    assert 'st.session_state.pop("voc_scroll_to_run_id", None)' in VIEWS

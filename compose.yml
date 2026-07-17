@@ -96,6 +96,7 @@ services:
       - --web.enable-remote-write-receiver
     volumes:
       - ./ops/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     depends_on: [portfolio-api, voc-api]
     restart: unless-stopped
 
@@ -111,3 +112,6 @@ services:
       - ./ops/monitoring/grafana/provisioning:/etc/grafana/provisioning
     depends_on: [prometheus]
     restart: unless-stopped
+
+volumes:
+  prometheus_data:

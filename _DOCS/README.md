@@ -32,6 +32,12 @@
    - 기존 포트폴리오 보고서 4개 보존과 VOC 보고서 2개 추가를 포함한 통합 보고서 6개 탭 요구사항
 11. `INTEGRATED_GRAFANA_DASHBOARD_REQUIREMENTS.md`
    - 상위 모니터링 탭 아래 기존 AI 상담·K6 2개와 VOC 신규 2개를 바로 표시하는 총 4개 하위 탭 요구사항
+12. `VOC_UI_FOLLOWUP_IMPROVEMENTS.md`
+   - 실 테스트 상태 배지 외부 배치, 진행 중 단계 스크롤 안전 여백, VOC 선택 카드 강조와 메신저형 채팅 구현·반응형 검증 기록
+13. `VOC_TESTCASE_GRAFANA_METRICS.md`
+   - VOC A~D 정식 보고서를 Prometheus 전용 지표로 변환하고 Grafana에 기록·보존하는 기준
+14. `AI_QUALITY_DASHBOARD_UI_IMPROVEMENTS.md`
+   - AI 챗봇 메시지 배치, 실시간·배치 좌우 품질 비교와 페이지 이동, 레이더·정확한 점수표 구현 기준
 
 ## 현재 상태
 
@@ -48,8 +54,10 @@
 - AI 에이전트 기존 테스트케이스 확인·수정과 수정·삭제 전 이력 보관 적용 완료
 - Grafana iframe 내부 스크롤을 제거하고 JSON 길이에 맞춘 전체 높이 적용 완료
 - 보고서 Markdown 이미지 원위치 표시와 Docker Noto CJK 한글 PNG 적용 완료
-- 통합 Grafana 4개 하위 탭과 VOC Grafana JSON 2개 구현 완료, 실제 Docker 프로비저닝·실데이터 확인 필요
+- 통합 Grafana 4개 하위 탭과 VOC Grafana JSON 2개 구현 완료, VOC A~D 정식 보고서 기반 9개 QA 패널·실데이터·Prometheus 영구 보존 검증 완료
 - 통합 대시보드의 상위 탭 6개, 챗봇·모니터링·리포트·테스트케이스 하위 화면 구현 및 비API 검증 완료
 - VOC A~D 배치 실행의 테스트케이스별 7단계 실시간 상태와 완료 후 단계 상세 조회 구현·비API 공유 검증 완료
+- VOC 실 테스트 외부 상태 배지·진행 단계 스크롤 안전 여백, 확인 기반 선택 카드와 520px 메신저형 VOC 채팅 구현·브라우저 검증 완료
+- AI 챗봇 필수 확인·채팅·입력창 연결, 사용자/AI 좌우 정렬, 입력 중 상태와 실시간·배치 품질 좌우 비교·페이지 이동·정확한 점수표 구현 완료
 
 구현과 문서가 다르면 `PROJECT_DIRECTORY_STRUCTURE.md`와 실제 코드를 우선 함께 수정한다.
