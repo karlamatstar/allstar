@@ -19,31 +19,119 @@ st.markdown(
     """
 <style>
 :root {
+    color-scheme:light;
+    --allstar-bg:#f4f7fb;
+    --allstar-surface:#ffffff;
+    --allstar-surface-soft:#edf3fa;
     --allstar-card:#ffffff;
     --allstar-border:#d8e0ec;
     --allstar-text:#172033;
     --allstar-muted:#64748b;
-    --allstar-selected:#304f7d;
+    --allstar-selected:#245fa6;
+    --allstar-selected-text:#ffffff;
+    --allstar-input:#ffffff;
+    --allstar-shadow:0 6px 18px rgba(30,51,95,.08);
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --allstar-card:#171f2e;
-        --allstar-border:#334155;
-        --allstar-text:#e5e9f0;
-        --allstar-muted:#94a3b8;
-        --allstar-selected:#6f96cc;
+        color-scheme:dark;
+        --allstar-bg:#0d1420;
+        --allstar-surface:#151e2d;
+        --allstar-surface-soft:#1b2738;
+        --allstar-card:#172233;
+        --allstar-border:#36465d;
+        --allstar-text:#edf2f8;
+        --allstar-muted:#a8b5c7;
+        --allstar-selected:#4f8fd8;
+        --allstar-selected-text:#ffffff;
+        --allstar-input:#111a28;
+        --allstar-shadow:0 8px 22px rgba(0,0,0,.30);
     }
+}
+html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    background:var(--allstar-bg) !important; color:var(--allstar-text) !important;
 }
 .block-container {max-width:1760px; padding-top:1rem; padding-bottom:2rem;}
 header[data-testid="stHeader"] {height:0; visibility:hidden;}
 #MainMenu, footer {visibility:hidden;}
-
-/* 선택 여부에 따라 탭 크기가 변하지 않게 하고, 다섯 번째 상위 탭부터 오른쪽 QA 영역으로 분리한다. */
-[data-baseweb="tab-list"] [data-baseweb="tab"] {
-    box-sizing:border-box; min-height:3.25rem; padding:.65rem .9rem !important;
-    font-weight:750; white-space:normal; text-align:center; line-height:1.2;
+.stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6,
+.stApp p, .stApp label, .stApp [data-testid="stCaptionContainer"] {
+    color:var(--allstar-text);
 }
-[data-baseweb="tab-list"] [aria-selected="true"] {color:var(--allstar-selected) !important;}
+.stApp [data-testid="stCaptionContainer"], .stApp small {color:var(--allstar-muted) !important;}
+.stApp [data-testid="stExpander"],
+.stApp [data-testid="stVerticalBlockBorderWrapper"] {
+    border-color:var(--allstar-border) !important; background:var(--allstar-surface) !important;
+}
+.stApp [data-baseweb="select"] > div,
+.stApp [data-baseweb="input"] > div,
+.stApp [data-baseweb="textarea"] > div,
+.stApp [data-testid="stTextInputRootElement"],
+.stApp [data-testid="stTextAreaRootElement"] {
+    background:var(--allstar-input) !important; border-color:var(--allstar-border) !important;
+    color:var(--allstar-text) !important;
+}
+.stApp input, .stApp textarea {color:var(--allstar-text) !important;}
+.stApp [data-testid="stDataFrame"], .stApp [data-testid="stTable"] {
+    border-radius:10px; border:1px solid var(--allstar-border); background:var(--allstar-surface);
+}
+
+/* 탭을 독립된 버튼처럼 구분하되 선택 여부에 따라 크기가 변하지 않게 한다. */
+[data-baseweb="tab-list"], [role="tablist"] {
+    box-sizing:border-box; gap:.38rem !important; padding:.35rem !important;
+    border:1px solid var(--allstar-border); border-radius:12px;
+    background:var(--allstar-surface-soft); box-shadow:var(--allstar-shadow);
+    overflow-x:auto; overflow-y:hidden; scrollbar-width:thin;
+}
+[data-baseweb="tab-list"] [data-baseweb="tab"], [role="tablist"] [data-testid="stTab"] {
+    box-sizing:border-box; flex:0 0 auto; min-height:3.25rem; min-width:7.2rem;
+    padding:.65rem .9rem !important; border:1px solid transparent !important; border-radius:9px !important;
+    background:var(--allstar-surface) !important; color:var(--allstar-text) !important;
+    font-weight:750; white-space:normal; text-align:center; line-height:1.2;
+    transition:background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+[data-baseweb="tab-list"] [data-baseweb="tab"]:hover, [role="tablist"] [data-testid="stTab"]:hover {
+    border-color:var(--allstar-selected) !important; background:var(--allstar-card) !important;
+}
+[data-baseweb="tab-list"] [aria-selected="true"], [role="tablist"] [data-testid="stTab"][aria-selected="true"] {
+    color:var(--allstar-selected-text) !important; background:var(--allstar-selected) !important;
+    border-color:var(--allstar-selected) !important; box-shadow:0 4px 12px rgba(36,95,166,.24);
+}
+[data-baseweb="tab-list"] [aria-selected="true"] p,
+[role="tablist"] [data-testid="stTab"][aria-selected="true"] p {color:var(--allstar-selected-text) !important;}
+[data-baseweb="tab-highlight"] {display:none !important;}
+[data-baseweb="tab-border"] {display:none !important;}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"] {
+    background-color:var(--allstar-surface) !important; color:var(--allstar-text) !important;
+    border:1px solid transparent !important; isolation:isolate; overflow:hidden;
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"]::before {
+    content:""; position:absolute; inset:-1px; z-index:0; pointer-events:none;
+    border-radius:9px; background:var(--allstar-surface);
+    box-shadow:inset 0 0 0 1px var(--allstar-border);
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"] > * {
+    position:relative; z-index:1; color:var(--allstar-text) !important;
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][data-selected],
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][aria-selected="true"] {
+    background-color:var(--allstar-selected) !important; color:var(--allstar-selected-text) !important;
+    border-color:var(--allstar-selected) !important; box-shadow:0 4px 12px rgba(36,95,166,.24) !important;
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][data-selected]::before,
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][aria-selected="true"]::before {
+    background:var(--allstar-selected); box-shadow:inset 0 0 0 1px var(--allstar-selected);
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][data-selected] > *,
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][aria-selected="true"] > * {
+    color:var(--allstar-selected-text) !important;
+}
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][data-selected] p,
+.stApp [data-testid="stTabs"] [role="tablist"] > [data-testid="stTab"][aria-selected="true"] p {
+    color:var(--allstar-selected-text) !important;
+}
+.stApp [data-testid="stTabs"] .react-aria-SelectionIndicator {display:none !important;}
+/* 다섯 번째 상위 탭부터 오른쪽 QA 영역으로 분리한다. */
 [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
   [data-baseweb="tab"]:nth-child(5),
 [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
@@ -51,6 +139,10 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
     margin-left:auto !important;
     padding-left:2rem !important;
     border-left:1px solid var(--allstar-border) !important;
+}
+[data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stTabs"] > div > [role="tablist"]
+  > [data-testid="stTab"]:nth-child(5) {
+    margin-left:auto !important; padding-left:2rem !important; border-left:1px solid var(--allstar-border) !important;
 }
 
 .allstar-banner {
@@ -151,6 +243,7 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
 /* 부분 갱신 중 기존 화면 전체가 회색으로 흐려지는 Streamlit stale 효과를 제거한다. */
 [data-stale="true"] {opacity:1 !important;}
 @media (max-width:1200px) {
+    .block-container {padding-left:1.2rem !important; padding-right:1.2rem !important;}
     .profile-card {height:19rem;}
     .profile-execution-card {height:19rem;}
     [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
@@ -159,13 +252,20 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
       button[role="tab"]:nth-child(5) {margin-left:1rem !important; padding-left:1rem !important;}
 }
 @media (max-width:900px) {
+    .block-container {padding-left:.8rem !important; padding-right:.8rem !important; padding-top:.65rem;}
+    .allstar-banner {padding:.85rem 1rem; border-radius:11px;}
+    .allstar-banner h1 {font-size:1.35rem;}
+    .allstar-banner p {font-size:.88rem; line-height:1.45;}
     .profile-card {height:auto; min-height:0; overflow-y:visible; padding:10px 12px;}
     .profile-status-slot.is-empty {display:none;}
     .profile-status-slot:not(.is-empty) {height:auto; min-height:1.65rem; margin-bottom:.3rem;}
     .profile-title, .profile-summary {min-height:0;}
     .profile-summary {margin-bottom:.55rem;}
     .profile-model {margin-top:.25rem;}
-    [data-baseweb="tab-list"] {overflow-x:auto; flex-wrap:nowrap;}
+    [data-baseweb="tab-list"], [role="tablist"] {overflow-x:auto; flex-wrap:nowrap; gap:.3rem !important; padding:.3rem !important;}
+    [data-baseweb="tab-list"] [data-baseweb="tab"], [role="tablist"] [data-testid="stTab"] {
+        min-width:7.6rem; min-height:3rem; padding:.55rem .72rem !important; font-size:.88rem;
+    }
     [class*="st-key-ai_live_breakdown_comparison"] [data-testid="stHorizontalBlock"],
     [class*="st-key-ai_batch_breakdown_comparison"] [data-testid="stHorizontalBlock"] {flex-direction:column !important;}
     [class*="st-key-ai_live_breakdown_comparison"] [data-testid="column"],
@@ -174,6 +274,18 @@ header[data-testid="stHeader"] {height:0; visibility:hidden;}
       [data-baseweb="tab"]:nth-child(5),
     [data-baseweb="tab-list"]:not([data-baseweb="tab-panel"] [data-baseweb="tab-list"])
       button[role="tab"]:nth-child(5) {margin-left:0 !important; padding-left:.9rem !important; border-left:0 !important;}
+    [data-testid="stMainBlockContainer"] > [data-testid="stVerticalBlock"] > [data-testid="stTabs"] > div > [role="tablist"]
+      > [data-testid="stTab"]:nth-child(5) {margin-left:0 !important; padding-left:.9rem !important; border-left:0 !important;}
+}
+@media (max-width:600px) {
+    .block-container {padding-left:.45rem !important; padding-right:.45rem !important;}
+    .allstar-banner {margin-bottom:.55rem; padding:.75rem .85rem;}
+    .allstar-banner h1 {font-size:1.18rem;}
+    .allstar-banner p {font-size:.8rem;}
+    [data-baseweb="tab-list"] [data-baseweb="tab"], [role="tablist"] [data-testid="stTab"] {min-width:7rem; font-size:.82rem;}
+    .scope-box {padding:.7rem .75rem; font-size:.88rem; line-height:1.5;}
+    [data-testid="stChatMessage"] {max-width:92% !important;}
+    [data-testid="stHorizontalBlock"] {gap:.55rem;}
 }
 </style>
 """,

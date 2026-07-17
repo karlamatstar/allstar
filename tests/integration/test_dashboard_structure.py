@@ -67,10 +67,26 @@ def test_report_collection_has_six_child_tabs_and_profile_comparison():
 
 
 def test_ai_and_voc_testcase_child_tabs_are_preserved():
-    assert '["케이스 관리·실행", "배치 품질 현황", "유형별 비교", "케이스 상세"]' in VIEWS
-    assert '["테스트케이스 관리", "실 테스트"]' in VIEWS
+    assert '["테스트케이스 관리", "테스트케이스 실행", "배치 품질 현황", "유형별 비교", "케이스 상세"]' in VIEWS
+    assert '["테스트케이스 관리", "테스트케이스 실행"]' in VIEWS
+    assert "def _render_ai_case_execution" in VIEWS
+    assert "GUI 전체 실행 범위" not in VIEWS
     assert "전체 테스트케이스 실행" in VIEWS
     assert "A·B·C·D 중 하나를 누르면" in VIEWS
+
+
+def test_dashboard_tabs_theme_and_narrow_layout_are_explicit():
+    assert '@media (prefers-color-scheme: dark)' in APP
+    assert '--allstar-bg:#0d1420' in APP
+    assert '[data-baseweb="tab-list"], [role="tablist"] {' in APP
+    assert '[data-testid="stTab"]::before' in APP
+    assert 'background:var(--allstar-selected) !important' in APP
+    assert '[data-baseweb="tab-highlight"] {display:none !important;}' in APP
+    assert '.react-aria-SelectionIndicator' in APP
+    assert '.block-container {padding-left:1.2rem !important; padding-right:1.2rem !important;}' in APP
+    assert '@media (max-width:900px)' in APP
+    assert '@media (max-width:600px)' in APP
+    assert 'overflow-x:auto; flex-wrap:nowrap' in APP
 
 
 def test_all_streamlit_external_api_entrypoints_use_required_confirmation_box():

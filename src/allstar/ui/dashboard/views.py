@@ -1561,13 +1561,28 @@ def _render_ai_case_management() -> None:
             _archive_ai_case_document(cases)
             _write_json(AI_CASES_PATH, [case for case in cases if case["case_id"] not in delete_ids])
             st.rerun()
-    st.divider()
-    st.markdown(f"<div class='scope-box'><b>전체 실행 범위</b><br>현재 등록된 {len(cases)}건 전체를 규칙 기반과 서버 연결 방식(API)으로 비교합니다.</div>", unsafe_allow_html=True)
+
+
+def _render_ai_case_execution() -> None:
+    cases = _read_json(AI_CASES_PATH, [])
+    running = bool(st.session_state.get("ai_batch_process"))
+    st.markdown(
+        f"<div class='scope-box'><b>전체 실행 범위</b><br>등록된 테스트케이스 전체 {len(cases)}건을 "
+        "규칙 기반과 서버 연결 방식(API)으로 각각 실행해 답변과 품질 판정을 비교합니다.<br>"
+        "실행 로그는 누적되고 최신 배치 품질 보고서는 실행 완료 후 자동 갱신됩니다.</div>",
+        unsafe_allow_html=True,
+    )
+    if not cases:
+        st.warning("실행할 테스트케이스가 없습니다. 테스트케이스 관리 탭에서 먼저 추가해 주세요.")
+    elif running:
+        st.info(f"등록된 전체 {len(cases)}건을 실행 중입니다. 아래에서 진행 상태를 확인하거나 실행을 중단할 수 있습니다.")
+    else:
+        st.caption(f"현재 등록된 전체 {len(cases)}건을 한 번에 실행합니다. 외부 AI API 호출 수와 비용은 모델 응답·재시도에 따라 달라질 수 있습니다.")
     confirm_run = _required_api_confirmation(
         "ai_run_confirm",
         "전체 테스트케이스 실행 범위와 외부 API 비용 발생 가능성을 확인했습니다.",
     )
-    if st.button("전체 테스트케이스 실행", type="primary", disabled=not cases or not confirm_run or bool(st.session_state.get("ai_batch_process"))):
+    if st.button("전체 테스트케이스 실행", type="primary", disabled=not cases or not confirm_run or running):
         _launch_process("ai_batch_process", [sys.executable, "-u", "-m", "allstar.ai_agent.evaluation.quality_pipeline"], "dashboard_ai_batch")
         st.rerun()
     _render_process("ai_batch_process", "AI 에이전트 전체 테스트케이스")
@@ -1575,9 +1590,13 @@ def _render_ai_case_management() -> None:
 
 def render_ai_testcases() -> None:
     _section("AI 에이전트 테스트케이스", "기존 포트폴리오의 관리·전체 실행·품질 분석 기능을 유지합니다.")
-    tab_manage, tab_batch, tab_breakdown, tab_detail = st.tabs(["케이스 관리·실행", "배치 품질 현황", "유형별 비교", "케이스 상세"])
+    tab_manage, tab_run, tab_batch, tab_breakdown, tab_detail = st.tabs(
+        ["테스트케이스 관리", "테스트케이스 실행", "배치 품질 현황", "유형별 비교", "케이스 상세"]
+    )
     with tab_manage:
         _render_ai_case_management()
+    with tab_run:
+        _render_ai_case_execution()
     df = _read_csv(AI_BATCH_REPORT)
     with tab_batch:
         if df is None or df.empty:
@@ -1638,7 +1657,7 @@ def _render_voc_case_management() -> list[dict]:
     running = bool(st.session_state.get("voc_profile_process"))
     _section("현재 VOC 테스트케이스")
     if running:
-        st.warning("A~D 실 테스트가 실행 중이므로 테스트케이스 추가·수정·삭제를 잠갔습니다.")
+        st.warning("A~D 테스트케이스 실행 중이므로 테스트케이스 추가·수정·삭제를 잠갔습니다.")
     if cases:
         columns = ["case_id", "category", "judge_enabled", "judge_mode", "question"]
         _render_dataframe(pd.DataFrame(cases)[columns], height=430)
@@ -1881,7 +1900,7 @@ def _render_voc_real_test(cases: list[dict]) -> None:
     total = len(cases)
     ai_targets = sum(bool(case.get("judge_enabled", False)) for case in cases)
     st.markdown(
-        f"<div class='scope-box'><b>GUI 전체 실행 범위</b><br>등록된 전체 {total}건 · 실제 AI 평가 대상 {ai_targets}건 · "
+        f"<div class='scope-box'><b>전체 실행 범위</b><br>등록된 전체 {total}건 · 실제 AI 평가 대상 {ai_targets}건 · "
         f"장애 재현 전용 {total - ai_targets}건<br>기본 외부 AI 호출 예상 최대 {ai_targets * 7}회이며 API 재시도 시 증가할 수 있습니다.</div>",
         unsafe_allow_html=True,
     )
@@ -2048,8 +2067,8 @@ def _render_voc_real_test(cases: list[dict]) -> None:
 
 
 def render_voc_testcases() -> None:
-    _section("VOC 테스트케이스", "테스트케이스를 관리하고 A~D 프로필별 전체 실 테스트를 실행합니다.")
-    tab_manage, tab_test = st.tabs(["테스트케이스 관리", "실 테스트"])
+    _section("VOC 테스트케이스", "테스트케이스를 관리하고 A~D 프로필별 전체 테스트케이스를 실행합니다.")
+    tab_manage, tab_test = st.tabs(["테스트케이스 관리", "테스트케이스 실행"])
     with tab_manage:
         cases = _render_voc_case_management()
     with tab_test:
