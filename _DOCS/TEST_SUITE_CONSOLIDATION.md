@@ -41,11 +41,11 @@
 외부 AI API 호출 파일과 명시적 `end_to_end` 검사를 제외한 전체 회귀 결과는 다음과 같다.
 
 ```text
-283 passed, 1 skipped, 2 deselected
-실행시간: 71.29초
+284 passed, 2 deselected
+실행시간: 74.73초
 ```
 
-건너뜀 1개는 실행 환경 조건이며, 선택 제외 2개는 실제 외부 AI 호출 파일이다. 경고 1개는 Starlette 시험 클라이언트의 기존 사용 중단 예정 안내로 이번 통합 실패가 아니다.
+기존 서버 중단 검사는 실제 Summarizer(6003)의 가동 여부에 따라 건너뛰었으나, 연결 실패를 모의하고 `ok=False`와 오류 원인을 확인하는 방식으로 바꿔 항상 실행한다. 선택 제외 2개는 `test_analyze_voc_tool_end_to_end`, `test_analyze_voc_nl_v2_tool_end_to_end`이며 서버 전체 가동 시 실행하는 VOC MCP 전체 연결 검사이므로 삭제하지 않고 유지한다. 실제 외부 AI 호출 파일 2개는 `--ignore`로 수집 대상에서 제외되므로 선택 제외 수치에 포함되지 않는다. 경고 1개는 Starlette 시험 클라이언트의 기존 사용 중단 예정 안내로 이번 변경 실패가 아니다.
 
 ## 5. 실행 명령
 

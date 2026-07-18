@@ -11,7 +11,7 @@
 
 import pytest
 from allstar.shared.paths import VOC_DATA_ROOT
-from allstar.voc.evaluation.runtime_support import ROOT, is_port_open, pb2_generated, run_async
+from allstar.voc.evaluation.runtime_support import ROOT, pb2_generated, run_async
 
 # utils.tools는 mcp 패키지가 필요하므로 없으면 관련 테스트 스킵
 tools = pytest.importorskip("allstar.voc.mcp.tools", reason="mcp 패키지가 설치되어 있지 않습니다")
@@ -50,18 +50,22 @@ def test_parse_filters_handles_none():
     assert parse_filters(None) in (None, [])
 
 
-@pytest.mark.skipif(not pb2_generated(), reason="voc_pb2.py 미생성")
-def test_analyze_voc_returns_error_dict_when_servers_down():
-    """에이전트 서버가 꺼진 상태에서 analyze_voc가 예외 대신 오류 딕셔너리를 반환하는가.
+def test_analyze_voc_returns_error_dict_when_server_connection_fails(monkeypatch):
+    """에이전트 연결 실패를 모의했을 때 analyze_voc가 오류 딕셔너리를 반환하는가.
 
     (장애를 숨기지 않되, MCP 클라이언트가 죽지 않도록 안전하게 실패해야 함)
     """
-    if is_port_open(6003):
-        pytest.skip("Summarizer(6003)가 켜져 있어 서버 다운 시나리오를 재현할 수 없습니다")
+
+    class UnavailableRuntime:
+        async def run_with_params(self, **_kwargs):
+            raise ConnectionError("모의 Summarizer 연결 실패")
+
+    monkeypatch.setattr(tools, "get_runtime", lambda: UnavailableRuntime())
     out = run_async(tools.analyze_voc(filters="결제", task="summary", max_items=10), timeout=60)
     assert isinstance(out, dict), "예외가 아닌 딕셔너리로 응답해야 합니다"
-    assert out.get("ok") is False, "서버가 꺼져 있는데 성공으로 응답했습니다 (장애 은폐)"
+    assert out.get("ok") is False, "연결 실패인데 성공으로 응답했습니다 (장애 은폐)"
     assert out.get("error"), "오류 원인(error)이 비어 있어 추적이 불가능합니다"
+    assert "모의 Summarizer 연결 실패" in out["error"]
 
 
 @pytest.mark.skipif(not pb2_generated(), reason="voc_pb2.py 미생성")
