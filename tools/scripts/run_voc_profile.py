@@ -33,6 +33,11 @@ def resolve_case_ids(requested: list[str] | tuple[str, ...] | None = None) -> tu
     return tuple(case_id for case_id in all_ids if case_id in selected)
 
 
+def is_full_case_scope(case_ids: list[str] | tuple[str, ...]) -> bool:
+    """현재 등록된 전체 범위만 최신 정식 보고서를 갱신할 수 있는지 반환한다."""
+    return tuple(case_ids) == resolve_case_ids()
+
+
 def judge_report_failed(path: Path) -> bool:
     if not path.exists():
         return True
@@ -134,6 +139,7 @@ def main() -> int:
     parser.add_argument("--run-id", help="대시보드 진행 상태와 실행 로그를 연결할 실행 ID")
     args = parser.parse_args()
     case_ids = resolve_case_ids(args.case_id)
+    full_case_scope = is_full_case_scope(case_ids)
     case_id_set = set(case_ids)
     selected_cases = [case for case in load_test_cases() if case["case_id"] in case_id_set]
     profile = get_profile(args.profile)
@@ -187,7 +193,7 @@ def main() -> int:
         *sorted((draft_report_dir / "assets").glob("*.png")),
     ]
     draft_output_paths = [path for path in draft_output_paths if path.exists()]
-    if result.returncode or judge_failures:
+    if result.returncode or judge_failures or not full_case_scope:
         output_paths = draft_output_paths
     else:
         output_paths = [
@@ -207,19 +213,25 @@ def main() -> int:
         "generation": profile.snapshot()["generation"],
         "judge": profile.snapshot()["judge"],
         "status": "failed" if judge_failures else "completed",
+        "execution_scope": "full" if full_case_scope else "partial_validation",
+        "formal_report_published": bool(full_case_scope and not result.returncode and not judge_failures),
         "judge_failures": judge_failures,
         "sources": sources,
         "outputs": outputs,
     }
     global_manifest = manifest_dir / f"voc_testcase_{profile.profile_id.lower()}.json"
     _atomic_json(log_dir / "run_manifest.json", manifest)
-    published = publish_profile_report_if_successful(
-        draft_report_dir,
-        report_dir,
-        manifest,
-        result.returncode,
-        judge_failures,
-    )
+    published = False
+    if full_case_scope:
+        published = publish_profile_report_if_successful(
+            draft_report_dir,
+            report_dir,
+            manifest,
+            result.returncode,
+            judge_failures,
+        )
+    else:
+        print("지정 사례 개발 검증이므로 기존 전체 범위 최신 정식 보고서는 유지합니다.", flush=True)
     if published:
         _atomic_json(global_manifest, manifest)
         from allstar.voc.evaluation.cross_validation import _update_comparison_report

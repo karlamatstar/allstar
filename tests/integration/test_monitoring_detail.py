@@ -91,3 +91,11 @@ def test_monitoring_status_checks_ten_services_without_ai_calls(monkeypatch):
     assert result["total"] == 10
     assert all(row["ok"] for row in result["rows"])
 
+
+def test_grafana_restart_configuration_avoids_optional_provisioning_noise():
+    compose = (ROOT / "compose.yml").read_text(encoding="utf-8")
+    provisioning = ROOT / "ops" / "monitoring" / "grafana" / "provisioning"
+
+    assert 'GF_PLUGINS_PREINSTALL_DISABLED: "true"' in compose
+    assert (provisioning / "plugins").is_dir()
+    assert (provisioning / "alerting").is_dir()

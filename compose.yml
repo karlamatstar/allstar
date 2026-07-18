@@ -109,6 +109,8 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_DEFAULT_THEME: system
+      # 현재 대시보드는 기본 패널만 사용하므로 권한 없는 번들 플러그인 자동 갱신을 막는다.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - ./ops/monitoring/grafana/provisioning:/etc/grafana/provisioning
     depends_on: [prometheus]

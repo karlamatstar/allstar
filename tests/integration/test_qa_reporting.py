@@ -185,6 +185,17 @@ def test_voc_profile_runner_can_limit_agent_validation_to_two_cases(tmp_path):
     assert "TC-02" in command
 
 
+def test_partial_voc_validation_is_not_full_formal_report_scope():
+    runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
+    spec = importlib.util.spec_from_file_location("run_voc_profile_partial_scope", runner_path)
+    assert spec and spec.loader
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+
+    assert runner.is_full_case_scope(["TC-01", "TC-02"]) is False
+    assert runner.is_full_case_scope(runner.resolve_case_ids()) is True
+
+
 def test_failed_voc_profile_draft_preserves_latest_formal_report(tmp_path):
     runner_path = ROOT / "tools" / "scripts" / "run_voc_profile.py"
     spec = importlib.util.spec_from_file_location("run_voc_profile_guard_failed", runner_path)
@@ -244,6 +255,8 @@ def test_voc_profile_runner_writes_cases_to_run_draft_before_publishing():
     assert 'draft_report_dir = log_dir / "report_draft"' in source
     assert "command = build_judge_command(draft_report_dir, case_ids)" in source
     assert '_atomic_json(log_dir / "run_manifest.json", manifest)' in source
+    assert '"execution_scope": "full" if full_case_scope else "partial_validation"' in source
+    assert "if full_case_scope:" in source
 
 
 def test_voc_execution_summary_links_formal_profile_report(monkeypatch, tmp_path):

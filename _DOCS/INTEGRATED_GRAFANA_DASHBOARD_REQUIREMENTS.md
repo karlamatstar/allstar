@@ -180,6 +180,8 @@
 - 같은 날 VOC 실시간·A~D Grafana를 각각 15개 패널로 확장했고 원본과 프로비저닝 JSON의 동일성을 확인했다.
 - Docker 재생성 뒤 단계 상태 시계열 168개, 단계 처리시간 시계열 56개, 과거 D 배치 Interpreter 실패 5건이 복원됐으며 Prometheus의 `ai-agent`·`voc` 대상이 모두 `up`이었다.
 - 두 Grafana 화면의 새 PromQL 전체가 Prometheus API에서 정상 처리됐고, 통합 Streamlit 상태 확인 함수는 AI·VOC·6개 에이전트·Prometheus·Grafana 10개를 모두 정상으로 판정했다.
+- 2026-07-18 운영 재시작 로그에서 선택 기능용 `plugins`·`alerting` 프로비저닝 폴더 부재와 사용하지 않는 기본 추천 플러그인 갱신 권한 경고를 확인했다. 두 빈 프로비저닝 폴더를 저장소에 포함하고, 기본 패널만 사용하는 현재 구성에는 Grafana 공식 `plugins.preinstall_disabled`에 대응하는 `GF_PLUGINS_PREINSTALL_DISABLED=true`를 적용했다. Grafana 컨테이너만 재생성한 뒤 Health `ok`와 새 시작 로그 오류 0건을 확인했다.
+- 같은 운영 검증에서 VOC API 네트워크 재연결 시 Compose 서비스 별칭이 누락되어 Prometheus `voc` 대상이 `down`으로 남는 문제를 확인했다. 재연결에 `voc-api` 별칭 복원을 추가하고 최종 완료 조건에 Prometheus 대상 `up`을 포함했으며, 재검증 뒤 A 최신 정식 사례 10건과 대표 검증 배치 2건 단계 지표가 다시 수집됐다.
 
 ## 8. 완료 기준
 
