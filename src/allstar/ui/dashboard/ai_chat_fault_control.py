@@ -17,6 +17,7 @@ from allstar.shared.paths import PROJECT_ROOT
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 SERVICE_NAME = "portfolio-api"
 VOC_SERVICE_NAME = "voc-api"
+SERVICE_CONTROL_URL = os.getenv("SERVICE_CONTROL_URL", "").rstrip("/")
 
 
 def _running_inside_docker() -> bool:
@@ -46,27 +47,45 @@ def _compose(*arguments: str, timeout: float = 60.0) -> subprocess.CompletedProc
     )
 
 
+def _change_service_state(
+    service_name: str,
+    action: str,
+    *,
+    timeout: float = 60.0,
+) -> tuple[bool, str]:
+    """Docker 내부에서는 제어 브리지를, 호스트에서는 Compose 명령을 사용한다."""
+    if SERVICE_CONTROL_URL:
+        try:
+            response = httpx.post(
+                f"{SERVICE_CONTROL_URL}/services/{service_name}/{action}",
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except (httpx.HTTPError, ValueError) as error:
+            return False, f"서비스 제어 브리지 요청 실패: {error}"
+        return True, f"컨테이너 상태: {payload.get('status', 'unknown')}"
+
+    arguments = ("stop", service_name) if action == "stop" else ("up", "-d", service_name)
+    try:
+        completed = _compose(*arguments, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, str(error)
+    if completed.returncode != 0:
+        return False, (completed.stderr or completed.stdout or "원인 없음").strip()
+    return True, (completed.stdout or "Compose 명령 완료").strip()
+
+
 def stop_chat_server_and_record(
     *, question: str,
     case_id: str | None,
     api_url: str,
 ) -> dict[str, Any]:
     """portfolio-api를 실제 종료하고 연결 실패를 일반 챗봇 N/A 로그로 남긴다."""
-    if _running_inside_docker():
-        return {
-            "ok": False,
-            "error": "Docker 내부 Streamlit에서는 호스트 채팅 서버를 직접 중단할 수 없습니다.",
-        }
-
     started = time.perf_counter()
     record_fault_event("chat_server_stop_requested", service=SERVICE_NAME, case_id=case_id)
-    try:
-        completed = _compose("stop", SERVICE_NAME)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        record_fault_event("chat_server_stop_failed", service=SERVICE_NAME, error=str(error))
-        return {"ok": False, "error": f"채팅 서버 중단 명령 실패: {error}"}
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "원인 없음").strip()
+    changed, detail = _change_service_state(SERVICE_NAME, "stop")
+    if not changed:
         record_fault_event("chat_server_stop_failed", service=SERVICE_NAME, error=detail)
         return {"ok": False, "error": f"채팅 서버를 중단하지 못했습니다: {detail}"}
 
@@ -135,21 +154,10 @@ def reconnect_chat_service(
     record_events: bool = False,
 ) -> dict[str, Any]:
     """지정한 Docker 채팅 서비스를 시작하고 Health 200까지 확인한다."""
-    if _running_inside_docker():
-        return {
-            "ok": False,
-            "error": f"Docker 내부 Streamlit에서는 호스트 {server_label}를 직접 재접속할 수 없습니다.",
-        }
     if record_events:
         record_fault_event("chat_server_reconnect_requested", service=service_name)
-    try:
-        completed = _compose("up", "-d", service_name, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        if record_events:
-            record_fault_event("chat_server_reconnect_failed", service=service_name, error=str(error))
-        return {"ok": False, "error": f"{server_label} 시작 명령 실패: {error}"}
-    if completed.returncode != 0:
-        detail = (completed.stderr or completed.stdout or "원인 없음").strip()
+    changed, detail = _change_service_state(service_name, "start", timeout=timeout)
+    if not changed:
         if record_events:
             record_fault_event("chat_server_reconnect_failed", service=service_name, error=detail)
         return {"ok": False, "error": f"{server_label} 시작 실패: {detail}"}

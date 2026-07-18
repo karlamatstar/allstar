@@ -66,6 +66,20 @@ services:
       - prometheus
     restart: unless-stopped
 
+  service-control:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.service_control
+    environment:
+      ALLSTAR_PROJECT_ROOT: /srv/app
+      ALLSTAR_OUTPUT_ROOT: /srv/app/_OUTPUT
+      SERVICE_CONTROL_EVENT_LOG: /srv/app/_OUTPUT/logs/services/service_control_events.jsonl
+      TZ: Asia/Seoul
+    volumes:
+      - ./_OUTPUT:/srv/app/_OUTPUT
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+
   streamlit:
     build:
       context: .
@@ -81,6 +95,7 @@ services:
       GRAFANA_URL: ${DASHBOARD_PUBLIC_GRAFANA_URL:-http://localhost:3000}
       GRAFANA_HEALTH_URL: http://grafana:3000
       K6_RUNNER_URL: http://k6-runner:8200
+      SERVICE_CONTROL_URL: http://service-control:8300
       TZ: Asia/Seoul
       INTERPRETER_HOST: voc-interpreter
       RETRIEVER_HOST: voc-retriever
@@ -109,6 +124,7 @@ services:
       - prometheus
       - grafana
       - k6-runner
+      - service-control
     restart: unless-stopped
 
   voc-api:

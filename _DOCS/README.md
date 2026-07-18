@@ -66,6 +66,8 @@
    - VOC 7단계 상세 지표, 핵심 서버 10개 상태 요약과 장시간·재시작·네트워크·동시 사용자 검증 순서 및 결과
 28. `DOCKER_STREAMLIT_K6_RUNNER.md`
    - 로컬 Docker Streamlit, K6 전용 실행 서비스, 공유 데이터·중지·AWS 선택 기준
+29. `CHAT_SERVICE_CONTROL_BRIDGE.md`
+   - Docker Streamlit의 AI 실제 서버 중단과 AI·VOC 재접속을 위한 제한된 서비스 제어 기준
 
 ## 문서 상태 해석 원칙
 

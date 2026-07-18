@@ -1,0 +1,13 @@
+FROM python:3.12-slim
+
+WORKDIR /srv/app
+COPY ops/docker/requirements.service_control.txt ./requirements.service_control.txt
+RUN pip install --no-cache-dir -r requirements.service_control.txt
+COPY src/ ./src/
+ENV PYTHONPATH=/srv/app/src \
+    ALLSTAR_PROJECT_ROOT=/srv/app \
+    ALLSTAR_OUTPUT_ROOT=/srv/app/_OUTPUT \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8
+EXPOSE 8300
+CMD ["uvicorn", "allstar.ui.dashboard.service_control_api:app", "--host", "0.0.0.0", "--port", "8300"]

@@ -68,3 +68,20 @@ def test_voc_reconnect_starts_only_voc_chat_service_without_fault_event(monkeypa
 
     assert commands == [("up", "-d", "voc-api")]
     assert result == {"ok": True, "message": "VOC 채팅 서버 재접속 완료", "health": "HTTP 200"}
+
+
+def test_docker_streamlit_reconnect_uses_service_control_bridge(monkeypatch):
+    calls = []
+    monkeypatch.setattr(control, "SERVICE_CONTROL_URL", "http://service-control:8300")
+    monkeypatch.setattr(
+        control,
+        "_change_service_state",
+        lambda service, action, **kwargs: calls.append((service, action)) or (True, "running"),
+    )
+    monkeypatch.setattr(control, "chat_server_health", lambda *_args, **_kwargs: (True, "HTTP 200"))
+    monkeypatch.setattr(control, "record_fault_event", lambda *_args, **_kwargs: None)
+
+    result = control.reconnect_chat_server("http://portfolio-api:8000")
+
+    assert calls == [("portfolio-api", "start")]
+    assert result["ok"] is True
