@@ -16,6 +16,14 @@ def test_ai_case_change_archive_preserves_current_list(tmp_path, monkeypatch):
     assert json.loads(archive_path.read_text(encoding="utf-8")) == cases
 
 
+def test_docker_case_archive_uses_shared_output_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(views, "TEST_CASE_ARCHIVE_ROOT", str(tmp_path))
+
+    archive_path = views._archive_ai_case_document([{"case_id": "TC-001"}])
+
+    assert archive_path.parent == tmp_path / "ai_agent" / "revisions"
+
+
 def test_ai_case_edit_ui_preserves_id_and_locks_changes_during_run():
     source = Path(views.__file__).read_text(encoding="utf-8")
 

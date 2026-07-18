@@ -64,6 +64,8 @@
    - AI·VOC 채팅 서버별 Health 감지, 입력 잠금, 중앙 중단 안내와 독립 재접속 기준
 27. `MONITORING_AND_OPERATIONAL_STABILITY_EXECUTION_PLAN.md`
    - VOC 7단계 상세 지표, 핵심 서버 10개 상태 요약과 장시간·재시작·네트워크·동시 사용자 검증 순서 및 결과
+28. `DOCKER_STREAMLIT_K6_RUNNER.md`
+   - 로컬 Docker Streamlit, K6 전용 실행 서비스, 공유 데이터·중지·AWS 선택 기준
 
 ## 문서 상태 해석 원칙
 
@@ -77,9 +79,9 @@
 
 - `src/allstar/`, `tools/`, `ops/`, `tests/`, `_OUTPUT/` 구조 전환 완료
 - Python import와 실행 진입점을 `allstar.*` 기준으로 전환 완료
-- Docker Compose, Server·QA GUI, Streamlit 실행 경로 전환 완료
+- Docker Compose, Server·QA GUI, Docker Streamlit과 K6 전용 실행 경로 전환 완료
 - 서버·품질검사 관리가 이미 실행 중이면 경고 후 두 번째 실행만 종료하는 단일 실행 잠금 적용 완료
-- Python 문법 검사와 외부 AI 실행 경로를 제외한 최신 비API 회귀 `281개 통과·1개 환경 제외·2개 선택 제외`
+- Python 문법 검사와 외부 AI 실행 경로를 제외한 최신 비API 회귀 `288개 통과·1개 환경 제외·2개 선택 제외`
 - OpenAI·Anthropic 인증을 복구하고 AI 배치 등록 전체 6건과 VOC A~D 각각 등록 전체 10건·종합 비교 실제 검증 완료
 - 이후 AI 에이전트 실시간 질문과 VOC 동일 질문 A~D에서는 OpenAI·Anthropic 호출과 독립 채점이 정상 완료됨
 - AI Agent 실시간 채팅의 채점 완료 후 최신 보고서 자동 갱신과 데이터 기반 PNG 그래프 적용 완료
@@ -113,6 +115,6 @@
 - 모니터링 상세 지표·Grafana 패널·Streamlit 서버 상태 요약을 커밋 `5d5db86`으로 `origin/main`에 반영 완료
 - 운영 안정성 자동 검증, 30분·재시작·네트워크·동시 사용자 결과, 부분 VOC 검증의 정식 보고서 보호를 커밋 `8e6e4cc`로 `origin/main`에 반영 완료
 
-QA 컨트롤러 AI 테스트케이스 탭, 직접 부하 K6 보고서 범위 분리, AI·VOC 테스트케이스 정상 완료 보고서 보호를 구현·비API 검증했다. 2026-07-18에 30분 장시간·Compose 재시작·네트워크 변동·1명/10명/25명 동시 사용자와 A 대표 2건 실제 API 종단 검증을 완료했다. 지정 사례 개발 검증은 실행별 초안만 유지하고 전체 범위 정식 보고서를 바꾸지 않도록 보완했다. 이후 미완료 범위는 AWS 배포 보안·보존·알림 정책과 Docker Streamlit의 K6 실행 방식 결정이다. 정확한 항목은 `PROJECT_PROGRESS_CHECKLIST.md`를 따른다.
+QA 컨트롤러 AI 테스트케이스 탭, 직접 부하 K6 보고서 범위 분리, AI·VOC 테스트케이스 정상 완료 보고서 보호를 구현·비API 검증했다. 2026-07-18에 30분 장시간·Compose 재시작·네트워크 변동·1명/10명/25명 동시 사용자와 A 대표 2건 실제 API 종단 검증을 완료했다. 지정 사례 개발 검증은 실행별 초안만 유지하고 전체 범위 정식 보고서를 바꾸지 않도록 보완했다. Streamlit 컨테이너와 K6 전용 실행 서비스도 로컬 Docker 기준으로 구현·검증했으며 AWS는 선택 사항이다. 정확한 항목은 `PROJECT_PROGRESS_CHECKLIST.md`를 따른다.
 
 구현과 문서가 다르면 `PROJECT_DIRECTORY_STRUCTURE.md`와 실제 코드를 우선 함께 수정한다.

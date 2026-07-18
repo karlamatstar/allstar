@@ -8,6 +8,7 @@ from allstar.ui.dashboard import ai_chat_fault_control as control
 def test_stop_chat_server_records_real_connection_failure(monkeypatch):
     events = []
     recorded = []
+    monkeypatch.setattr(control, "_running_inside_docker", lambda: False)
     monkeypatch.setattr(control, "_compose", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""))
     monkeypatch.setattr(control, "chat_server_health", lambda *_args, **_kwargs: (False, "connection refused"))
     monkeypatch.setattr(control, "record_fault_event", lambda event, **details: events.append((event, details)))
@@ -37,6 +38,7 @@ def test_stop_chat_server_records_real_connection_failure(monkeypatch):
 
 def test_reconnect_requires_health_200(monkeypatch):
     events = []
+    monkeypatch.setattr(control, "_running_inside_docker", lambda: False)
     monkeypatch.setattr(control, "_compose", lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout="", stderr=""))
     monkeypatch.setattr(control, "chat_server_health", lambda *_args, **_kwargs: (True, "HTTP 200"))
     monkeypatch.setattr(control, "record_fault_event", lambda event, **details: events.append((event, details)))
@@ -49,6 +51,7 @@ def test_reconnect_requires_health_200(monkeypatch):
 
 def test_voc_reconnect_starts_only_voc_chat_service_without_fault_event(monkeypatch):
     commands = []
+    monkeypatch.setattr(control, "_running_inside_docker", lambda: False)
     monkeypatch.setattr(
         control,
         "_compose",

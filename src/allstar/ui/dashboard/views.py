@@ -60,11 +60,31 @@ PORTFOLIO_API = os.getenv("PORTFOLIO_API_URL", "http://localhost:8000")
 VOC_API = os.getenv("VOC_API_URL", "http://localhost:8100")
 PROMETHEUS = os.getenv("PROMETHEUS_URL", "http://localhost:9090").rstrip("/")
 GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000").rstrip("/")
+GRAFANA_HEALTH = os.getenv("GRAFANA_HEALTH_URL", GRAFANA).rstrip("/")
+VOC_AGENT_HOSTS = {
+    6001: os.getenv("INTERPRETER_HOST", "127.0.0.1"),
+    6002: os.getenv("RETRIEVER_HOST", "127.0.0.1"),
+    6003: os.getenv("SUMMARIZER_HOST", "127.0.0.1"),
+    6004: os.getenv("EVALUATOR_HOST", "127.0.0.1"),
+    6005: os.getenv("CRITIC_HOST", "127.0.0.1"),
+    6006: os.getenv("IMPROVER_HOST", "127.0.0.1"),
+}
 TIMEOUT = httpx.Timeout(190.0, connect=5.0)
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 
-AI_CASES_PATH = PROJECT_ROOT / "src" / "allstar" / "ai_agent" / "evaluation" / "test_cases.json"
-VOC_CASES_PATH = PROJECT_ROOT / "src" / "allstar" / "voc" / "evaluation" / "test_cases.json"
+AI_CASES_PATH = Path(
+    os.getenv(
+        "AI_TEST_CASES_PATH",
+        str(PROJECT_ROOT / "src" / "allstar" / "ai_agent" / "evaluation" / "test_cases.json"),
+    )
+)
+VOC_CASES_PATH = Path(
+    os.getenv(
+        "VOC_TEST_CASES_PATH",
+        str(PROJECT_ROOT / "src" / "allstar" / "voc" / "evaluation" / "test_cases.json"),
+    )
+)
+TEST_CASE_ARCHIVE_ROOT = os.getenv("TEST_CASE_ARCHIVE_ROOT", "").strip()
 AI_BATCH_REPORT = AI_AGENT_REPORT_ROOT / "batch" / "evaluation_result.csv"
 AI_LIVE_REPORT = AI_AGENT_REPORT_ROOT / "live" / "live_report.csv"
 AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
@@ -1507,7 +1527,11 @@ def _k6_environment_panel(status: dict[str, Any]) -> None:
     if not status["grafana"]["ok"]:
         st.caption("Grafana는 결과 조회용이므로 꺼져 있어도 시험할 수 있지만, 실행 결과 화면은 Grafana 시작 후 확인해야 합니다.")
     if status.get("inside_docker"):
-        st.warning("현재 Streamlit이 Docker 안에서 실행 중입니다. 컨테이너 내부의 Linux용 K6가 확인되어야 시험할 수 있습니다.")
+        mode = status.get("execution_mode")
+        if mode == "remote":
+            st.caption("Streamlit과 분리된 K6 전용 컨테이너에서 시험을 실행합니다.")
+        else:
+            st.warning("현재 Streamlit이 Docker 안에서 실행 중입니다. K6 전용 실행 서비스 연결을 확인하세요.")
 
 
 def _enable_k6_number_hold_repeat() -> None:
@@ -1723,6 +1747,7 @@ def _render_k6_card(spec: Any, environment: dict[str, Any], run: Any) -> None:
                         portfolio_api=PORTFOLIO_API,
                         vus=vus,
                         duration=duration,
+                        actual_api_confirmed=api_confirmed,
                     )
                 except (RuntimeError, ValueError) as error:
                     st.error(str(error))
@@ -1774,7 +1799,7 @@ def _render_k6_active_run(run: Any) -> None:
 @st.fragment
 def _render_k6_load_test_fragment() -> None:
     _enable_k6_number_hold_repeat()
-    environment = _k6_environment_status(PORTFOLIO_API, GRAFANA)
+    environment = _k6_environment_status(PORTFOLIO_API, GRAFANA_HEALTH)
     heading_columns = st.columns([5, 1])
     with heading_columns[0]:
         st.markdown("### 실행 환경 상태")
@@ -1845,16 +1870,17 @@ def _monitoring_service_status(
             })
 
     def tcp_probe(name: str, port: int) -> None:
+        host = VOC_AGENT_HOSTS.get(port, "127.0.0.1")
         started = time.perf_counter()
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+            with socket.create_connection((host, port), timeout=0.6):
                 pass
             elapsed = round((time.perf_counter() - started) * 1000, 1)
             rows.append({
                 "서비스": name,
                 "상태": "정상",
                 "응답시간(ms)": elapsed,
-                "확인 내용": f"TCP {port} 연결 성공",
+                "확인 내용": f"TCP {host}:{port} 연결 성공",
                 "ok": True,
             })
         except OSError as error:
@@ -1901,7 +1927,7 @@ def _render_monitoring_status_summary() -> None:
             _monitoring_service_status.clear()
             st.rerun(scope="fragment")
 
-    status = _monitoring_service_status(PORTFOLIO_API, VOC_API, PROMETHEUS, GRAFANA)
+    status = _monitoring_service_status(PORTFOLIO_API, VOC_API, PROMETHEUS, GRAFANA_HEALTH)
     healthy = int(status["healthy"])
     total = int(status["total"])
     summary_columns = st.columns(3)
@@ -1926,7 +1952,7 @@ def _render_monitoring_status_summary() -> None:
 def render_monitoring() -> None:
     _section("모니터링", "상위 모니터링 탭 아래에서 Grafana 화면 4개를 바로 확인합니다.")
     _render_monitoring_status_summary()
-    grafana_ready = bool(_get_json(f"{GRAFANA}/api/health"))
+    grafana_ready = bool(_get_json(f"{GRAFANA_HEALTH}/api/health"))
     dashboards = [
         ("AI 에이전트 실시간 운영", "ai-agent-quality"),
         ("K6 성능 부하 시험", "k6-performance-test"),
@@ -2405,7 +2431,11 @@ def _csv_list(value: str) -> list[str]:
 
 def _archive_ai_case_document(cases: list[dict[str, Any]]) -> Path:
     """AI Agent 현재 실행본을 수정·삭제 직전에 날짜별 이력으로 보존한다."""
-    archive_dir = AI_CASES_PATH.parent / "archive" / "revisions"
+    archive_dir = (
+        Path(TEST_CASE_ARCHIVE_ROOT) / "ai_agent" / "revisions"
+        if TEST_CASE_ARCHIVE_ROOT
+        else AI_CASES_PATH.parent / "archive" / "revisions"
+    )
     archive_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
     archive_path = archive_dir / f"test_cases_before_change_{timestamp}.json"
@@ -2417,7 +2447,11 @@ def _archive_ai_case_document(cases: list[dict[str, Any]]) -> Path:
 
 def _archive_voc_case_document(document: dict[str, Any]) -> Path:
     """현재 실행본을 수정·삭제 직전에 날짜별 이력으로 보존한다."""
-    archive_dir = VOC_CASES_PATH.parent / "archive" / "revisions"
+    archive_dir = (
+        Path(TEST_CASE_ARCHIVE_ROOT) / "voc" / "revisions"
+        if TEST_CASE_ARCHIVE_ROOT
+        else VOC_CASES_PATH.parent / "archive" / "revisions"
+    )
     archive_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().astimezone().strftime("%Y%m%d_%H%M%S_%f")
     archive_path = archive_dir / f"test_cases_before_change_{timestamp}.json"

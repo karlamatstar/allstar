@@ -41,6 +41,76 @@ services:
       - ./_OUTPUT:/srv/app/_OUTPUT
     restart: unless-stopped
 
+  k6-runner:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.k6_runner
+    ports:
+      - "127.0.0.1:8200:8200"
+    environment:
+      PORTFOLIO_API_URL: http://portfolio-api:8000
+      PROMETHEUS_URL: http://prometheus:9090
+      K6_PROMETHEUS_RW_SERVER_URL: http://prometheus:9090/api/v1/write
+      K6_PROMETHEUS_RW_TREND_STATS: p(95),p(99),avg,min,max
+      K6_RESULTS_DIR: /srv/app/_OUTPUT/logs/qa/k6
+      K6_EXECUTION_LOCATION: K6 전용 컨테이너
+      TZ: Asia/Seoul
+      ALLSTAR_PROJECT_ROOT: /srv/app
+      ALLSTAR_OUTPUT_ROOT: /srv/app/_OUTPUT
+    volumes:
+      - ./_OUTPUT:/srv/app/_OUTPUT
+      - ./src/allstar/ai_agent/evaluation/test_cases.json:/srv/app/src/allstar/ai_agent/evaluation/test_cases.json
+      - ./src/allstar/voc/evaluation/test_cases.json:/srv/app/src/allstar/voc/evaluation/test_cases.json
+    depends_on:
+      - portfolio-api
+      - prometheus
+    restart: unless-stopped
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: ops/docker/Dockerfile.streamlit
+    ports:
+      - "8501:8501"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PORTFOLIO_API_URL: http://portfolio-api:8000
+      VOC_API_URL: http://voc-api:8100
+      PROMETHEUS_URL: http://prometheus:9090
+      GRAFANA_URL: ${DASHBOARD_PUBLIC_GRAFANA_URL:-http://localhost:3000}
+      GRAFANA_HEALTH_URL: http://grafana:3000
+      K6_RUNNER_URL: http://k6-runner:8200
+      TZ: Asia/Seoul
+      INTERPRETER_HOST: voc-interpreter
+      RETRIEVER_HOST: voc-retriever
+      SUMMARIZER_HOST: voc-summarizer
+      EVALUATOR_HOST: voc-evaluator
+      CRITIC_HOST: voc-critic
+      IMPROVER_HOST: voc-improver
+      INTERPRETER_ENDPOINT: voc-interpreter:6001
+      RETRIEVER_ENDPOINT: voc-retriever:6002
+      SUMMARIZER_ENDPOINT: voc-summarizer:6003
+      EVALUATOR_ENDPOINT: voc-evaluator:6004
+      CRITIC_ENDPOINT: voc-critic:6005
+      IMPROVER_ENDPOINT: voc-improver:6006
+      ALLSTAR_PROJECT_ROOT: /srv/app
+      ALLSTAR_OUTPUT_ROOT: /srv/app/_OUTPUT
+      AI_TEST_CASES_PATH: /srv/app/src/allstar/ai_agent/evaluation/test_cases.json
+      VOC_TEST_CASES_PATH: /srv/app/src/allstar/voc/evaluation/test_cases.json
+      TEST_CASE_ARCHIVE_ROOT: /srv/app/_OUTPUT/archives/testcases
+    volumes:
+      - ./_OUTPUT:/srv/app/_OUTPUT
+      - ./src/allstar/ai_agent/evaluation/test_cases.json:/srv/app/src/allstar/ai_agent/evaluation/test_cases.json
+      - ./src/allstar/voc/evaluation/test_cases.json:/srv/app/src/allstar/voc/evaluation/test_cases.json
+    depends_on:
+      - portfolio-api
+      - voc-api
+      - prometheus
+      - grafana
+      - k6-runner
+    restart: unless-stopped
+
   voc-api:
     <<: *voc-common
     command: ["uvicorn", "allstar.voc.api.main:app", "--host", "0.0.0.0", "--port", "8100"]

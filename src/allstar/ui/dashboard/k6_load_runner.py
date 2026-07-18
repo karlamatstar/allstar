@@ -21,6 +21,7 @@ from allstar.shared.qa_reporting import QAReportSession
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://127.0.0.1:9090").rstrip("/")
+K6_RUNNER_URL = os.getenv("K6_RUNNER_URL", "").rstrip("/")
 K6_INSTALL_URL = "https://grafana.com/docs/k6/latest/set-up/install-k6/"
 K6_MIN_VUS = 1
 K6_MAX_VUS = 999
@@ -82,6 +83,57 @@ K6_TEST_SPECS = (
 K6_TEST_SPEC_BY_ID = {spec.test_id: spec for spec in K6_TEST_SPECS}
 
 
+@dataclass(frozen=True)
+class RemoteDashboardK6Run:
+    """K6 전용 실행 서비스의 상태를 기존 대시보드 표시 형식으로 변환한다."""
+
+    spec: K6TestSpec
+    run_id: str
+    status: str
+    finalized: bool
+    exit_code: int | None
+    settings: dict[str, Any]
+    log_path: Path
+    elapsed_seconds: float
+
+
+def _remote_runner_enabled() -> bool:
+    return bool(K6_RUNNER_URL)
+
+
+def _runner_request(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    try:
+        response = httpx.request(method, f"{K6_RUNNER_URL}{path}", timeout=5.0, **kwargs)
+        response.raise_for_status()
+        payload = response.json()
+    except (httpx.HTTPError, ValueError) as error:
+        raise RuntimeError(f"K6 전용 실행 서비스에 연결할 수 없습니다: {error}") from error
+    if not isinstance(payload, dict):
+        raise RuntimeError("K6 전용 실행 서비스가 올바르지 않은 응답을 반환했습니다.")
+    return payload
+
+
+def _remote_run(payload: dict[str, Any] | None) -> RemoteDashboardK6Run | None:
+    if not payload:
+        return None
+    test_id = str(payload.get("test_id") or "")
+    spec = K6_TEST_SPEC_BY_ID.get(test_id)
+    if spec is None:
+        raise RuntimeError(f"알 수 없는 원격 K6 시험 상태입니다: {test_id}")
+    raw_path = Path(str(payload.get("log_path") or ""))
+    log_path = raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path
+    return RemoteDashboardK6Run(
+        spec=spec,
+        run_id=str(payload.get("run_id") or ""),
+        status=str(payload.get("status") or "failed"),
+        finalized=bool(payload.get("finalized")),
+        exit_code=payload.get("exit_code"),
+        settings=dict(payload.get("settings") or {}),
+        log_path=log_path,
+        elapsed_seconds=float(payload.get("elapsed_seconds") or 0.0),
+    )
+
+
 def validate_load_settings(vus: int | str, duration: int | str) -> tuple[int, int]:
     try:
         parsed_vus = int(vus)
@@ -137,7 +189,16 @@ def probe_http(url: str, expected_text: str | None = None) -> tuple[bool, str]:
 
 def inspect_environment(portfolio_api: str, grafana_url: str) -> dict[str, dict[str, Any]]:
     executable = find_k6_executable()
-    k6_ok, k6_detail = read_k6_version(executable)
+    if _remote_runner_enabled():
+        try:
+            runner = _runner_request("GET", "/health")
+            k6_ok = bool(runner.get("ok"))
+            k6_detail = str(runner.get("k6_version") or "K6 실행기 응답 없음")
+            executable = "remote:k6-runner" if k6_ok else None
+        except RuntimeError as error:
+            k6_ok, k6_detail, executable = False, str(error), None
+    else:
+        k6_ok, k6_detail = read_k6_version(executable)
     api_ok, api_detail = probe_http(f"{portfolio_api.rstrip('/')}/health")
     prometheus_ok, prometheus_detail = probe_http(f"{PROMETHEUS_URL}/-/ready", "ready")
     grafana_ok, grafana_detail = probe_http(f"{grafana_url.rstrip('/')}/api/health")
@@ -148,6 +209,7 @@ def inspect_environment(portfolio_api: str, grafana_url: str) -> dict[str, dict[
         "grafana": {"ok": grafana_ok, "detail": grafana_detail},
         "required_ready": k6_ok and api_ok and prometheus_ok,
         "inside_docker": Path("/.dockerenv").exists(),
+        "execution_mode": "remote" if _remote_runner_enabled() else "local",
     }
 
 
@@ -200,6 +262,8 @@ _CURRENT_RUN: DashboardK6Run | None = None
 
 
 def current_run() -> DashboardK6Run | None:
+    if _remote_runner_enabled():
+        return poll_current_run()
     with _RUN_LOCK:
         return _CURRENT_RUN
 
@@ -227,6 +291,11 @@ def _finish_run(run: DashboardK6Run) -> DashboardK6Run:
 
 
 def poll_current_run() -> DashboardK6Run | None:
+    if _remote_runner_enabled():
+        try:
+            return _remote_run(_runner_request("GET", "/runs/current").get("run"))
+        except RuntimeError:
+            return None
     with _RUN_LOCK:
         if _CURRENT_RUN is None:
             return None
@@ -240,14 +309,31 @@ def start_run(
     portfolio_api: str,
     vus: int | None = None,
     duration: int | None = None,
+    actual_api_confirmed: bool = False,
 ) -> DashboardK6Run:
+    spec = K6_TEST_SPEC_BY_ID[test_id]
+    if spec.actual_api and not actual_api_confirmed:
+        raise ValueError("실제 AI API 호출과 비용 발생 가능성을 먼저 확인해야 합니다.")
+    if _remote_runner_enabled():
+        payload = {
+            "test_id": test_id,
+            "vus": vus,
+            "duration": duration,
+            "actual_api_confirmed": actual_api_confirmed,
+        }
+        remote = _remote_run(_runner_request("POST", "/runs", json=payload).get("run"))
+        if remote is None:
+            raise RuntimeError("K6 전용 실행 서비스가 실행 상태를 반환하지 않았습니다.")
+        return remote
+
     global _CURRENT_RUN
     with _RUN_LOCK:
         if _CURRENT_RUN is not None:
             _finish_run(_CURRENT_RUN)
             raise RuntimeError("진행 중이거나 확인하지 않은 이전 시험 결과가 있습니다.")
-        spec = K6_TEST_SPEC_BY_ID[test_id]
-        settings: dict[str, Any] = {"실행 위치": "통합 Streamlit 대시보드"}
+        settings: dict[str, Any] = {
+            "실행 위치": os.getenv("K6_EXECUTION_LOCATION", "통합 Streamlit 대시보드")
+        }
         env = os.environ.copy()
         env.update({
             "PYTHONIOENCODING": "utf-8",
@@ -300,6 +386,8 @@ def start_run(
 
 
 def stop_current_run() -> bool:
+    if _remote_runner_enabled():
+        return bool(_runner_request("POST", "/runs/current/stop").get("stopped"))
     with _RUN_LOCK:
         run = _CURRENT_RUN
         if run is None or run.process.poll() is not None:
@@ -323,6 +411,8 @@ def stop_current_run() -> bool:
 
 
 def clear_finished_run() -> bool:
+    if _remote_runner_enabled():
+        return bool(_runner_request("DELETE", "/runs/current").get("cleared"))
     global _CURRENT_RUN
     with _RUN_LOCK:
         if _CURRENT_RUN is None:

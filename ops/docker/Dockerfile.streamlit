@@ -1,0 +1,19 @@
+FROM python:3.12-slim
+
+WORKDIR /srv/app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt pyproject.toml ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ ./src/
+COPY tools/ ./tools/
+COPY ops/ ./ops/
+COPY tests/ ./tests/
+ENV PYTHONPATH=/srv/app/src \
+    ALLSTAR_PROJECT_ROOT=/srv/app \
+    ALLSTAR_OUTPUT_ROOT=/srv/app/_OUTPUT \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8
+EXPOSE 8501
+CMD ["python", "-u", "-m", "streamlit", "run", "src/allstar/ui/dashboard/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.headless", "true"]

@@ -44,6 +44,7 @@ def test_shutdown_stops_streamlit_tree_and_project_docker_services(tmp_path, mon
         return Completed("") if command[0] == "netstat" else Completed()
 
     monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
+    monkeypatch.setattr(lifecycle, "is_allstar_host_streamlit", lambda _pid: True)
 
     assert lifecycle.stop_project_services(ROOT, state_path, log_path) is True
     assert commands[0][0] == ["netstat", "-ano", "-p", "tcp"]
@@ -79,6 +80,7 @@ def test_streamlit_can_be_found_by_port_when_saved_pid_is_missing(tmp_path, monk
         return Completed()
 
     monkeypatch.setattr(lifecycle.subprocess, "run", fake_run)
+    monkeypatch.setattr(lifecycle, "is_allstar_host_streamlit", lambda _pid: True)
 
     assert lifecycle.stop_project_services(ROOT, state_path, log_path) is True
     assert killed == [["taskkill", "/PID", "4000", "/T", "/F"]]
@@ -109,12 +111,33 @@ def test_streamlit_shutdown_failure_is_not_reported_as_complete(tmp_path, monkey
     state_path.write_text(json.dumps({"streamlit_pid": 4321}), encoding="utf-8")
 
     monkeypatch.setattr(lifecycle, "listening_pids", lambda _port: set())
+    monkeypatch.setattr(lifecycle, "is_allstar_host_streamlit", lambda _pid: True)
     monkeypatch.setattr(lifecycle, "streamlit_root_pid", lambda pid: pid)
     monkeypatch.setattr(lifecycle, "terminate_process_tree", lambda _pid, _path: False)
     monkeypatch.setattr(lifecycle, "docker_ready", lambda: False)
 
     assert lifecycle.stop_project_services(ROOT, state_path, log_path) is False
     assert "Streamlit 종료 오류 발생" in log_path.read_text(encoding="utf-8")
+
+
+def test_docker_port_proxy_is_not_terminated_as_host_streamlit(tmp_path, monkeypatch):
+    state_path = tmp_path / "state.json"
+    log_path = tmp_path / "shutdown.log"
+    state_path.write_text(json.dumps({"streamlit_pid": None}), encoding="utf-8")
+    killed = []
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+
+    monkeypatch.setattr(lifecycle, "listening_pids", lambda _port: {1708, 6580})
+    monkeypatch.setattr(lifecycle, "is_allstar_host_streamlit", lambda _pid: False)
+    monkeypatch.setattr(lifecycle, "terminate_process_tree", lambda pid, _path: (killed.append(pid) or True))
+    monkeypatch.setattr(lifecycle, "docker_ready", lambda: True)
+    monkeypatch.setattr(lifecycle.subprocess, "run", lambda *_args, **_kwargs: Completed())
+
+    assert lifecycle.stop_project_services(ROOT, state_path, log_path) is True
+    assert killed == []
 
 
 def test_taskkill_access_denied_falls_back_to_powershell_stop_process(tmp_path, monkeypatch):

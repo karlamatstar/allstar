@@ -233,6 +233,31 @@ def streamlit_root_pid(pid: int) -> int:
         return pid
 
 
+def is_allstar_host_streamlit(pid: int) -> bool:
+    """8501 포트 PID가 Docker 중계가 아닌 AllStar 호스트 Streamlit인지 확인한다."""
+    script = (
+        f"$process = Get-CimInstance Win32_Process -Filter \"ProcessId = {int(pid)}\"; "
+        "$command = [string]$process.CommandLine; "
+        "if (($command -match '(?i)streamlit') -and "
+        "($command -match '(?i)streamlit_app\\.py')) { [Console]::Out.Write('true') }"
+    )
+    try:
+        completed = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW,
+            timeout=10,
+            check=False,
+        )
+        return completed.returncode == 0 and (completed.stdout or "").strip().lower() == "true"
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def terminate_streamlit_processes(pids: set[int], log_path: Path) -> bool:
     """중복된 자식 PID를 상위 Streamlit 실행 PID로 합쳐 프로세스 트리를 종료한다."""
     root_pids = {streamlit_root_pid(pid) for pid in pids}
@@ -280,8 +305,10 @@ def listening_pids(port: int) -> set[int]:
 def stop_project_services(root: Path, state_path: Path, log_path: Path) -> bool:
     """남아 있는 Streamlit과 현재 프로젝트의 Docker Compose 서비스만 종료한다."""
     streamlit_pid = read_streamlit_pid(state_path)
-    streamlit_pids = listening_pids(8501)
-    if streamlit_pid:
+    streamlit_pids = {
+        pid for pid in listening_pids(8501) if is_allstar_host_streamlit(pid)
+    }
+    if streamlit_pid and is_allstar_host_streamlit(streamlit_pid):
         streamlit_pids.add(streamlit_pid)
     streamlit_stopped = terminate_streamlit_processes(streamlit_pids, log_path)
 

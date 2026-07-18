@@ -238,6 +238,20 @@ QA 관리 GUI의 14개 시험은 공통 실행 기록 자동화를 사용한다.
 - Windows 호스트 Streamlit `/_stcore/health` 응답 `200 ok` 확인
 - 실제 OpenAI·Anthropic 호출은 실행하지 않음
 
+위 항목은 2026-07-16 당시의 Windows 호스트 Streamlit 검증 이력이다. 2026-07-18 현재는 Streamlit을 Docker 컨테이너로 전환하고 K6를 별도 Runner 컨테이너로 분리했다.
+
+### 2026-07-18 Docker Streamlit·K6 Runner 전환 검증
+
+- Compose 서비스가 기존 10개에서 Streamlit·K6 Runner를 포함한 12개로 확장됨
+- Streamlit `:8501`, K6 Runner `127.0.0.1:8200`, AI·VOC API, Prometheus, Grafana Health 200 확인
+- K6 Runner의 Linux K6 2.1.0과 허용 시험 ID 전용 실행·중지 확인
+- AI·VOC 테스트케이스 원본 파일과 `_OUTPUT` 로그·보고서·수정 이력 공유 확인
+- 장애·기능 검증 K6 종료 코드 0, 기능 시험 283개 통과·2개 환경 제외·2개 선택 제외
+- 실패·중단 실행이 정식 장애 보고서를 갱신하지 않는 보호 확인
+- 외부 AI API 호출 없음
+
+현재 구조와 로컬·AWS 경계는 `DOCKER_STREAMLIT_K6_RUNNER.md`를 따른다.
+
 ### 화면 용어 한국어화 후 추가 검증
 
 - 검증일: 2026-07-16

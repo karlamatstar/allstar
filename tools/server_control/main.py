@@ -25,6 +25,7 @@ from lifecycle import (
     stop_docker_desktop,
     stop_project_and_docker,
     stop_project_services,
+    is_allstar_host_streamlit,
     terminate_streamlit_processes,
 )
 
@@ -44,7 +45,8 @@ LEFT_PANEL_WIDTH = 440
 SERVICES = [
     ("컨테이너 실행 환경 (Docker Desktop)", "docker-desktop", None, None, "system"),
     ("AI 상담 서버 (Portfolio API)", "portfolio-api", 8000, "http://localhost:8000/docs", "docker"),
-    ("통합 화면 (Streamlit)", "streamlit", 8501, "http://localhost:8501", "host"),
+    ("부하 시험 실행기 (K6 Runner)", "k6-runner", 8200, "http://localhost:8200/docs", "docker"),
+    ("통합 화면 (Streamlit)", "streamlit", 8501, "http://localhost:8501", "docker"),
     ("고객 의견 분석 서버 (VOC API)", "voc-api", 8100, "http://localhost:8100/docs", "docker"),
     ("질문 의도 분석 (Interpreter)", "voc-interpreter", 6001, None, "docker"),
     ("관련 의견 검색 (Retriever)", "voc-retriever", 6002, None, "docker"),
@@ -220,7 +222,7 @@ class ServerControl(tk.Tk):
         )
 
     def _start_streamlit(self):
-        existing_pids = sorted(listening_pids(8501))
+        existing_pids = sorted(pid for pid in listening_pids(8501) if is_allstar_host_streamlit(pid))
         if existing_pids:
             self._write_runtime_state(existing_pids[0])
             self.events.put("\n[Streamlit] 8501 포트에서 이미 실행 중입니다.\n")
@@ -246,7 +248,7 @@ class ServerControl(tk.Tk):
         self._write_runtime_state(self.streamlit_process.pid)
 
     def _stop_streamlit(self):
-        pids = listening_pids(8501)
+        pids = {pid for pid in listening_pids(8501) if is_allstar_host_streamlit(pid)}
         if self.streamlit_process and self.streamlit_process.poll() is None:
             pids.add(self.streamlit_process.pid)
         terminate_streamlit_processes(pids, SHUTDOWN_LOG)
@@ -278,9 +280,7 @@ class ServerControl(tk.Tk):
                 creationflags=subprocess.CREATE_NO_WINDOW, check=False,
             )
             self.events.put(completed.stdout or "")
-            if completed.returncode == 0:
-                self.after(0, self._start_streamlit)
-            else:
+            if completed.returncode != 0:
                 self.events.put(f"\n[서버 시작 실패: {completed.returncode}]\n")
             self.after(0, self._finish_operation)
 

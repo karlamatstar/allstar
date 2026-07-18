@@ -20,7 +20,8 @@ from allstar.ai_agent.api.jira_client import JIRA_URL, JIRA_USER, JIRA_API_TOKEN
 def run_k6():
     print("▶ Running Chaos Test (K6)...", flush=True)
     script = PROJECT_ROOT / "ops" / "performance" / "chaos_test.js"
-    result_file = PROJECT_ROOT / "ops" / "performance" / "results" / "chaos_result.json"
+    result_root = Path(os.getenv("K6_RESULTS_DIR", PROJECT_ROOT / "ops" / "performance" / "results"))
+    result_file = result_root / "chaos_result.json"
     os.makedirs(result_file.parent, exist_ok=True)
 
     # 프로젝트 RUN 폴더에 둔 실행 파일을 우선하고, 없으면 시스템 설치 경로를 사용한다.
@@ -29,7 +30,7 @@ def run_k6():
     if not k6_bin:
         message = "[오류] K6 실행 파일을 찾지 못했습니다. RUN/k6.exe를 두거나 K6를 시스템에 설치하세요."
         print(message, flush=True)
-        return result_file, message
+        return result_file, message, 2
     test_id = os.getenv("K6_TEST_ID", datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
     cmd = [
         k6_bin,
@@ -66,7 +67,7 @@ def run_k6():
 
     if process.returncode != 0:
         print("⚠️ K6 completed with errors or thresholds failed.", flush=True)
-    return result_file, "".join(output_lines)
+    return result_file, "".join(output_lines), int(process.returncode or 0)
 
 def run_pytest():
     print("▶ Running Functional Tests (Pytest, external AI calls excluded)...", flush=True)
@@ -93,7 +94,7 @@ def run_pytest():
 
     if process.returncode != 0:
         print("⚠️ Pytest completed with some failures.", flush=True)
-    return "".join(output_lines)
+    return "".join(output_lines), int(process.returncode or 0)
 
 def create_chaos_defect_report(k6_out, pytest_out):
     print("▶ Generating Chaos Defect Report...")
@@ -292,8 +293,16 @@ if __name__ == "__main__":
     print("통합 QA 검증 파이프라인 시작")
     print("="*60)
 
-    k6_result, k6_output = run_k6()
-    pytest_output = run_pytest()
+    k6_result, k6_output, k6_exit_code = run_k6()
+    pytest_output, pytest_exit_code = run_pytest()
+    if k6_exit_code != 0 or pytest_exit_code != 0:
+        print(
+            f"[검증 실패] K6 종료 코드 {k6_exit_code}, Pytest 종료 코드 {pytest_exit_code}",
+            flush=True,
+        )
+        print("정상 완료가 아니므로 정식 장애·기능 검증 보고서는 갱신하지 않습니다.", flush=True)
+        raise SystemExit(1)
+
     md_file = create_chaos_defect_report(k6_output, pytest_output)
     convert_md_to_word(md_file)
     # create_chaos_jira_issue() # 사용자의 요청으로 지라 자동 티켓 생성 비활성화

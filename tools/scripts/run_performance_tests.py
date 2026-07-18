@@ -274,8 +274,9 @@ if __name__ == "__main__":
         print("[오류] K6 실행 파일을 찾지 못했습니다. RUN/k6.exe를 두거나 K6를 시스템에 설치하세요.")
         raise SystemExit(2)
     script_path = PROJECT_ROOT / "ops" / "performance" / "api_latency_test.js"
-    results_dir = PROJECT_ROOT / "ops" / "performance" / "results"
+    results_dir = Path(os.getenv("K6_RESULTS_DIR", PROJECT_ROOT / "ops" / "performance" / "results"))
     report_dir = PROJECT_ROOT / "_OUTPUT" / "reports" / "performance"
 
-    raw_json = run_k6_performance(k6_bin, script_path, "127.0.0.1:8000", results_dir)
+    target_host = os.getenv("TARGET_IP", "127.0.0.1:8000")
+    raw_json = run_k6_performance(k6_bin, script_path, target_host, results_dir)
     parse_and_generate_report(raw_json, report_dir)

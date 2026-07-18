@@ -1,0 +1,24 @@
+FROM grafana/k6:2.1.0 AS k6
+
+FROM python:3.12-slim
+WORKDIR /srv/app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fonts-noto-cjk tk \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=k6 /usr/bin/k6 /usr/local/bin/k6
+COPY requirements.txt pyproject.toml ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ ./src/
+COPY tools/ ./tools/
+COPY ops/ ./ops/
+COPY tests/ ./tests/
+COPY RUN/ ./RUN/
+COPY _DOCS/ ./_DOCS/
+COPY README.md compose.yml ./
+ENV PYTHONPATH=/srv/app/src \
+    ALLSTAR_PROJECT_ROOT=/srv/app \
+    ALLSTAR_OUTPUT_ROOT=/srv/app/_OUTPUT \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8
+EXPOSE 8200
+CMD ["uvicorn", "allstar.ui.dashboard.k6_runner_api:app", "--host", "0.0.0.0", "--port", "8200"]

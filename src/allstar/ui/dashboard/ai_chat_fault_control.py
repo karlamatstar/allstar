@@ -19,6 +19,11 @@ SERVICE_NAME = "portfolio-api"
 VOC_SERVICE_NAME = "voc-api"
 
 
+def _running_inside_docker() -> bool:
+    """Streamlit이 Docker 내부에서 실행 중인지 확인한다."""
+    return Path("/.dockerenv").exists()
+
+
 def chat_server_health(api_url: str, timeout: float = 1.0) -> tuple[bool, str]:
     try:
         response = httpx.get(f"{api_url.rstrip('/')}/health", timeout=timeout)
@@ -47,7 +52,7 @@ def stop_chat_server_and_record(
     api_url: str,
 ) -> dict[str, Any]:
     """portfolio-api를 실제 종료하고 연결 실패를 일반 챗봇 N/A 로그로 남긴다."""
-    if Path("/.dockerenv").exists():
+    if _running_inside_docker():
         return {
             "ok": False,
             "error": "Docker 내부 Streamlit에서는 호스트 채팅 서버를 직접 중단할 수 없습니다.",
@@ -130,7 +135,7 @@ def reconnect_chat_service(
     record_events: bool = False,
 ) -> dict[str, Any]:
     """지정한 Docker 채팅 서비스를 시작하고 Health 200까지 확인한다."""
-    if Path("/.dockerenv").exists():
+    if _running_inside_docker():
         return {
             "ok": False,
             "error": f"Docker 내부 Streamlit에서는 호스트 {server_label}를 직접 재접속할 수 없습니다.",

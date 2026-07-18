@@ -2,7 +2,10 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -189,6 +192,8 @@ def test_ai_testcase_quality_test_is_last_ai_tab_and_uses_all_cases():
 
 
 def test_global_execution_lock_updates_all_tab_buttons():
+    if os.name != "nt" and not os.environ.get("DISPLAY"):
+        pytest.skip("화면이 없는 Linux 컨테이너에서는 Windows QA GUI 동작 시험을 건너뜁니다.")
     app = qa_control.QAControl()
     app.withdraw()
     app.update_idletasks()
@@ -230,3 +235,10 @@ def test_validation_command_excludes_external_ai_tests_by_default():
     assert "--ignore=tests/ai_agent/test_evaluation_pipeline.py" in source
     assert "--ignore=tests/voc/evaluation/test_pipeline_e2e.py" in source
     assert '"-k", "not end_to_end"' in source
+    assert "pytest_output, pytest_exit_code = run_pytest()" in source
+    assert "if k6_exit_code != 0 or pytest_exit_code != 0:" in source
+    assert "raise SystemExit(1)" in source
+    assert source.index("if k6_exit_code != 0 or pytest_exit_code != 0:") < source.index(
+        "md_file = create_chaos_defect_report(k6_output, pytest_output)"
+    )
+    assert "정식 장애·기능 검증 보고서는 갱신하지 않습니다." in source
