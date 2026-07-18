@@ -10,6 +10,7 @@
 import ast
 
 import pytest
+from allstar.voc.evaluation import runtime_support
 from allstar.voc.evaluation.runtime_support import AGENT_FILES, AGENT_PORTS, ROOT
 
 AGENT_NAMES = list(AGENT_FILES.keys())
@@ -58,6 +59,31 @@ def test_agent_ports_are_unique():
     ports = list(AGENT_PORTS.values())
     assert len(ports) == len(set(ports)) == 6
     assert sorted(ports) == [6001, 6002, 6003, 6004, 6005, 6006]
+
+
+def test_running_agents_uses_configured_container_endpoints(monkeypatch):
+    calls = []
+    for index, name in enumerate(AGENT_PORTS, start=1):
+        monkeypatch.setenv(f"{name.upper()}_ENDPOINT", f"voc-{name}:{16000 + index}")
+
+    def fake_is_port_open(port, host="127.0.0.1", timeout=1.0):
+        calls.append((host, port))
+        return True
+
+    monkeypatch.setattr(runtime_support, "is_port_open", fake_is_port_open)
+
+    assert all(runtime_support.running_agents().values())
+    assert calls == [
+        (f"voc-{name}", 16000 + index)
+        for index, name in enumerate(AGENT_PORTS, start=1)
+    ]
+
+
+def test_agent_endpoint_falls_back_to_host_and_default_port(monkeypatch):
+    monkeypatch.delenv("INTERPRETER_ENDPOINT", raising=False)
+    monkeypatch.setenv("INTERPRETER_HOST", "voc-interpreter")
+
+    assert runtime_support.agent_endpoint("interpreter") == ("voc-interpreter", 6001)
 
 
 def test_voc_csv_exists_and_has_data():

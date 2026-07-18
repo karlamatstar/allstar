@@ -23,7 +23,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from allstar.ai_agent.evaluation.live_report_status import ACTIVE_STATES, STATUS_PATH, read_status
-from allstar.shared.log_retention import read_daily_jsonl, read_jsonl
+from allstar.shared.log_retention import read_daily_jsonl, read_json, read_jsonl
 from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import (
     AI_AGENT_LOG_ROOT,
@@ -491,6 +491,73 @@ def _read_process_output(path: Path) -> str:
         return raw.decode("cp949", errors="replace")
 
 
+def _render_live_terminal(
+    output: str,
+    *,
+    key: str,
+    empty_text: str,
+    max_chars: int = 12000,
+) -> None:
+    """실행 로그를 고정 높이 내부 스크롤 영역에서 최신 내용부터 보여준다."""
+    with st.container(height=360, border=True, autoscroll=True, key=key):
+        st.code(output[-max_chars:] or empty_text, language="text", wrap_lines=True)
+
+
+def _enable_management_expander_scroll(*expander_keys: str) -> None:
+    """관리 항목을 펼칠 때 전체 재실행 없이 열린 항목의 시작점으로 이동한다."""
+    components.html(
+        f"""
+        <script>
+        (() => {{
+            const root = window.parent;
+            const doc = root.document;
+            const hideFrame = () => {{
+                if (window.frameElement) window.frameElement.style.display = "none";
+            }};
+            const keys = {json.dumps(list(expander_keys))};
+            root.__allstarManagementExpanderKeys ||= new Set();
+            keys.forEach((key) => root.__allstarManagementExpanderKeys.add(`st-key-${{key}}`));
+            if (root.__allstarManagementExpanderScrollInstalled) {{
+                hideFrame();
+                return;
+            }}
+            root.__allstarManagementExpanderScrollInstalled = true;
+
+            const streamlitKey = (element) => {{
+                let node = element;
+                while (node && node !== doc.body) {{
+                    const key = Array.from(node.classList || []).find((name) => name.startsWith("st-key-"));
+                    if (key) return key;
+                    node = node.parentElement;
+                }}
+                return "";
+            }};
+            const moveToOpenedSection = (summary) => {{
+                root.requestAnimationFrame(() => {{
+                    root.requestAnimationFrame(() => {{
+                        summary.style.scrollMarginTop = "1rem";
+                        summary.scrollIntoView({{behavior: "smooth", block: "start"}});
+                    }});
+                }});
+            }};
+
+            doc.addEventListener("click", (event) => {{
+                const summary = event.target.closest?.('details[data-testid="stExpander"] > summary, details > summary');
+                const details = summary?.closest("details");
+                if (!summary || !details || details.open) return;
+                if (!root.__allstarManagementExpanderKeys.has(streamlitKey(details))) return;
+                root.setTimeout(() => {{
+                    if (details.open) moveToOpenedSection(summary);
+                }}, 180);
+            }}, true);
+            hideFrame();
+        }})();
+        </script>
+        """,
+        height=1,
+    )
+
+
 def _render_process(state_key: str, label: str) -> tuple[bool, str]:
     state = st.session_state.get(state_key)
     if not state:
@@ -506,8 +573,12 @@ def _render_process(state_key: str, label: str) -> tuple[bool, str]:
             process.terminate()
             st.session_state.pop(state_key, None)
             st.rerun()
-        with st.expander("실행 내용 보기", expanded=True):
-            st.code(output[-12000:] or "준비 중...", language="text")
+        with st.expander("실행 내용 보기", expanded=True, key=f"{state_key}_output_expander"):
+            _render_live_terminal(
+                output,
+                key=f"{state_key}_terminal_{state.get('run_id', 'current')}",
+                empty_text="준비 중...",
+            )
         time.sleep(1)
         st.rerun()
     else:
@@ -515,9 +586,13 @@ def _render_process(state_key: str, label: str) -> tuple[bool, str]:
             st.success(f"{label} 완료 · {elapsed:.1f}초")
         else:
             st.error(f"{label} 종료 코드 {return_code} · {elapsed:.1f}초")
-        with st.expander("실행 내용 보기"):
-            st.code(output[-12000:] or "출력 없음", language="text")
-        if st.button("완료 상태 닫기", key=f"clear_{state_key}"):
+        with st.expander("실행 내용 보기", key=f"{state_key}_output_expander"):
+            _render_live_terminal(
+                output,
+                key=f"{state_key}_terminal_{state.get('run_id', 'current')}",
+                empty_text="출력 없음",
+            )
+        if st.button("완료 상태 닫기 · 다음 테스트 준비", key=f"clear_{state_key}", type="primary"):
             st.session_state.pop(state_key, None)
             _read_csv.clear()
             st.rerun()
@@ -611,6 +686,7 @@ def _render_stage_explorer(status: dict, key_prefix: str, interactive: bool = Tr
                         if st.button(
                             f"{symbols[state]} {index + 1}. {korean}\n({english}) {state_labels[state]}",
                             key=f"{key_prefix}_stage_{index}",
+                            type="primary" if st.session_state[selected_key] == index else "secondary",
                             disabled=state in {"pending", "running"},
                             width="stretch",
                         ):
@@ -971,6 +1047,7 @@ def render_ai_chat() -> None:
                             "<div class='ai-server-status-message'>이제 새로운 질문을 입력할 수 있습니다.</div>",
                             unsafe_allow_html=True,
                         )
+            st.markdown("<div class='chat-input-guide'>메시지 입력</div>", unsafe_allow_html=True)
             question = st.chat_input(
                 "AI 에이전트에게 질문하세요",
                 key="ai_chat_input",
@@ -984,15 +1061,15 @@ def render_ai_chat() -> None:
         fault_disabled = bool(pending) or server_down or not cases_available
         fault_503, fault_504, fault_down = st.columns(3)
         with fault_503:
-            if st.button("503 서비스 이용 불가 시험", disabled=fault_disabled, width="stretch"):
+            if st.button("503 서비스 이용 불가 시험", key="ai_fault_503", disabled=fault_disabled, width="stretch"):
                 if _start_ai_fault_request(history, "http_503"):
                     st.rerun()
         with fault_504:
-            if st.button("504 시간 초과 시험", disabled=fault_disabled, width="stretch"):
+            if st.button("504 시간 초과 시험", key="ai_fault_504", disabled=fault_disabled, width="stretch"):
                 if _start_ai_fault_request(history, "http_504"):
                     st.rerun()
         with fault_down:
-            if st.button("채팅 서버 중단 시험", disabled=fault_disabled, width="stretch"):
+            if st.button("채팅 서버 중단 시험", key="ai_fault_server_down", disabled=fault_disabled, width="stretch"):
                 if _start_ai_fault_request(history, "server_down"):
                     st.rerun()
         if question:
@@ -1444,6 +1521,7 @@ def _render_voc_chat_conversation() -> None:
                         unsafe_allow_html=True,
                     )
 
+        st.markdown("<div class='chat-input-guide'>VOC 메시지 입력</div>", unsafe_allow_html=True)
         question = st.chat_input(
             "VOC 관련 단발 질문을 입력하세요",
             key="voc_chat_input",
@@ -1763,8 +1841,12 @@ def _render_k6_active_run(run: Any) -> None:
         st.caption(" · ".join(f"{key}: {value}" for key, value in run.settings.items() if key != "실행 위치"))
     output = _read_process_output(run.log_path)
     st.markdown("### 실시간 터미널")
-    with st.container(height=360, border=True, autoscroll=True, key=f"k6_terminal_{run.run_id}"):
-        st.code(output[-50000:] or "시험 실행을 준비하고 있습니다...", language="text", wrap_lines=True)
+    _render_live_terminal(
+        output,
+        key=f"k6_terminal_{run.run_id}",
+        empty_text="시험 실행을 준비하고 있습니다...",
+        max_chars=50000,
+    )
 
     if run.finalized:
         if run.status != "completed":
@@ -1795,7 +1877,11 @@ def _render_k6_load_test_fragment() -> None:
         st.link_button("K6 공식 설치 안내 열기", K6_INSTALL_URL, width="stretch")
     st.markdown(
         "<div class='scope-box'><b>실행 안내</b><br>한 번에 하나의 시험만 실행합니다. "
-        "직접 K6 5종은 Grafana용이며, 장애·기능 검증과 서버 연결 성능 종합 시험의 기존 정식 보고서는 유지합니다.</div>",
+        "직접 K6 5종은 Grafana용이며, 장애·기능 검증과 서버 연결 성능 종합 시험의 기존 정식 보고서는 유지합니다."
+        "<br><br><b>입력 가능 범위</b>"
+        f"<br>가상 인원: 최소 {K6_MIN_VUS}명 · 최대 {K6_MAX_VUS}명"
+        f"<br>실행 시간: 최소 {K6_MIN_DURATION}초 · 최대 {K6_MAX_DURATION}초"
+        "<br>범위를 벗어난 값을 직접 입력하면 최소값 또는 최대값으로 자동 조정됩니다.</div>",
         unsafe_allow_html=True,
     )
     run = poll_current_run()
@@ -2271,7 +2357,11 @@ def _render_ai_case_management() -> None:
     _render_dataframe(pd.DataFrame(cases)) if cases else st.info("등록된 테스트케이스가 없습니다.")
 
     if cases:
-        with st.expander("기존 AI 에이전트 테스트케이스 확인·수정", expanded=False):
+        with st.expander(
+            "기존 AI 에이전트 테스트케이스 확인·수정",
+            expanded=False,
+            key="ai_case_edit_expander",
+        ):
             selected_id = st.selectbox(
                 "확인·수정할 테스트케이스",
                 [case["case_id"] for case in cases],
@@ -2315,7 +2405,7 @@ def _render_ai_case_management() -> None:
                     st.success(f"{selected_id}를 수정했습니다. 수정 전 실행본도 보존했습니다: {archive_path.name}")
                     st.rerun()
 
-    with st.expander("새 테스트케이스 추가", expanded=False):
+    with st.expander("새 테스트케이스 추가", expanded=False, key="ai_case_add_expander"):
         with st.form("ai_case_add", clear_on_submit=True):
             columns = st.columns(3)
             case_id = columns[0].text_input("테스트케이스 ID", value=_next_case_id(cases, 3))
@@ -2339,13 +2429,18 @@ def _render_ai_case_management() -> None:
                 _write_json(AI_CASES_PATH, cases)
                 st.success("테스트케이스를 추가했습니다.")
                 st.rerun()
-    with st.expander("테스트케이스 삭제"):
+    with st.expander("테스트케이스 삭제", key="ai_case_delete_expander"):
         delete_ids = st.multiselect("삭제할 테스트케이스", [case["case_id"] for case in cases], key="ai_delete_ids")
         confirm = st.checkbox("선택한 테스트케이스 삭제를 확인합니다.", key="ai_delete_confirm")
         if st.button("선택 삭제", disabled=running or not (delete_ids and confirm), key="ai_delete_button"):
             _archive_ai_case_document(cases)
             _write_json(AI_CASES_PATH, [case for case in cases if case["case_id"] not in delete_ids])
             st.rerun()
+    _enable_management_expander_scroll(
+        "ai_case_edit_expander",
+        "ai_case_add_expander",
+        "ai_case_delete_expander",
+    )
 
 
 def _render_ai_case_execution() -> None:
@@ -2458,7 +2553,11 @@ def _render_voc_case_management() -> list[dict]:
         st.info("등록된 VOC 테스트케이스가 없습니다.")
 
     if cases:
-        with st.expander("기존 VOC 테스트케이스 확인·수정", expanded=False):
+        with st.expander(
+            "기존 VOC 테스트케이스 확인·수정",
+            expanded=False,
+            key="voc_case_edit_expander",
+        ):
             selected_id = st.selectbox(
                 "확인·수정할 테스트케이스",
                 [case["case_id"] for case in cases],
@@ -2541,7 +2640,7 @@ def _render_voc_case_management() -> list[dict]:
                     st.success(f"{selected_id}를 수정했습니다. 수정 전 실행본도 보존했습니다: {archive_path.name}")
                     st.rerun()
 
-    with st.expander("새 VOC 테스트케이스 추가"):
+    with st.expander("새 VOC 테스트케이스 추가", key="voc_case_add_expander"):
         with st.form("voc_case_add", clear_on_submit=True):
             columns = st.columns(3)
             case_id = columns[0].text_input("테스트케이스 ID", value=_next_case_id(cases, 2))
@@ -2574,13 +2673,18 @@ def _render_voc_case_management() -> list[dict]:
                 cases.append(case)
                 _write_json(VOC_CASES_PATH, {**document, "cases": cases})
                 st.rerun()
-    with st.expander("VOC 테스트케이스 삭제"):
+    with st.expander("VOC 테스트케이스 삭제", key="voc_case_delete_expander"):
         delete_ids = st.multiselect("삭제할 테스트케이스", [case["case_id"] for case in cases], key="voc_delete_ids")
         confirm = st.checkbox("선택한 VOC 테스트케이스 삭제를 확인합니다.", key="voc_delete_confirm")
         if st.button("선택 삭제", disabled=running or not (delete_ids and confirm), key="voc_delete_button"):
             _archive_voc_case_document(document)
             _write_json(VOC_CASES_PATH, {**document, "cases": [case for case in cases if case["case_id"] not in delete_ids]})
             st.rerun()
+    _enable_management_expander_scroll(
+        "voc_case_edit_expander",
+        "voc_case_add_expander",
+        "voc_case_delete_expander",
+    )
     return cases
 
 
@@ -2666,10 +2770,11 @@ def _voc_run_metrics(log: dict | None) -> tuple[float | None, float | None, int]
     return run_seconds, average, len(times)
 
 
-def _scroll_to_voc_run_bottom(run_id: str) -> None:
-    """새 VOC 실행 영역이 생긴 직후 화면을 해당 영역의 맨 아래로 한 번 이동한다."""
+def _scroll_to_voc_run_bottom(run_id: str, phase: str = "launch") -> None:
+    """VOC 실행 영역과 실제 단계 화면이 생기는 두 시점에 하단으로 이동한다."""
     safe_run_id = re.sub(r"[^a-zA-Z0-9_-]", "_", run_id)
-    anchor_id = f"voc-run-bottom-{safe_run_id}"
+    safe_phase = re.sub(r"[^a-zA-Z0-9_-]", "_", phase)
+    anchor_id = f"voc-run-bottom-{safe_run_id}-{safe_phase}"
     st.markdown(f"<div id='{anchor_id}'></div>", unsafe_allow_html=True)
     components.html(
         f"""
@@ -2771,6 +2876,7 @@ def _render_voc_real_test(cases: list[dict]) -> None:
                 )
                 st.session_state.voc_running_profile = profile["profile_id"]
                 st.session_state.voc_scroll_to_run_id = run_id
+                st.session_state.voc_scroll_to_detail_run_id = run_id
                 st.session_state.pop("voc_profile_notice", None)
 
     if st.session_state.get("voc_profile_notice"):
@@ -2812,6 +2918,8 @@ def _render_voc_real_test(cases: list[dict]) -> None:
             st.session_state.pop("voc_profile_process", None)
             st.session_state.pop("voc_running_profile", None)
             st.session_state.pop("voc_profile_notice", None)
+            st.session_state.pop("voc_scroll_to_run_id", None)
+            st.session_state.pop("voc_scroll_to_detail_run_id", None)
             _read_csv.clear()
             st.rerun(scope="fragment")
 
@@ -2859,11 +2967,20 @@ def _render_voc_real_test(cases: list[dict]) -> None:
                 interactive=True,
             )
 
-    with st.expander("실행 내용 보기", expanded=False):
-        st.code(output[-12000:] or ("준비 중..." if running else "출력 없음"), language="text")
+    with st.expander("실행 내용 보기", expanded=False, key=f"voc_output_expander_{run_id}"):
+        _render_live_terminal(
+            output,
+            key=f"voc_terminal_{run_id}",
+            empty_text="준비 중..." if running else "출력 없음",
+        )
 
-    if st.session_state.get("voc_scroll_to_run_id") == run_id:
-        _scroll_to_voc_run_bottom(run_id)
+    detail_ready = bool(progress and (progress.get("current_case_id") or not running))
+    if st.session_state.get("voc_scroll_to_detail_run_id") == run_id and detail_ready:
+        _scroll_to_voc_run_bottom(run_id, "detail")
+        st.session_state.pop("voc_scroll_to_detail_run_id", None)
+        st.session_state.pop("voc_scroll_to_run_id", None)
+    elif st.session_state.get("voc_scroll_to_run_id") == run_id:
+        _scroll_to_voc_run_bottom(run_id, "launch")
         st.session_state.pop("voc_scroll_to_run_id", None)
 
 

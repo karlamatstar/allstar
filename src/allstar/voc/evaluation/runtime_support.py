@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -38,6 +39,20 @@ AGENT_PORTS = {
     "critic": 6005,
     "improver": 6006,
 }
+
+
+def agent_endpoint(name: str) -> tuple[str, int]:
+    """실행 환경에 맞는 에이전트 호스트와 포트를 반환합니다."""
+    normalized = name.strip().lower()
+    default_port = AGENT_PORTS[normalized]
+    prefix = normalized.upper()
+    endpoint = os.environ.get(f"{prefix}_ENDPOINT", "").strip()
+    if endpoint:
+        host, separator, port_text = endpoint.rpartition(":")
+        if separator and host and port_text.isdigit():
+            return host.strip("[]"), int(port_text)
+    host = os.environ.get(f"{prefix}_HOST", "127.0.0.1").strip() or "127.0.0.1"
+    return host, default_port
 
 # 6개 에이전트 소스 파일과 반드시 존재해야 하는 심볼
 AGENT_FILES = {
@@ -77,7 +92,11 @@ def is_port_open(port: int, host: str = "127.0.0.1", timeout: float = 1.0) -> bo
 
 def running_agents() -> Dict[str, bool]:
     """6개 에이전트 각각의 포트 가동 여부를 반환합니다."""
-    return {name: is_port_open(port) for name, port in AGENT_PORTS.items()}
+    return {
+        name: is_port_open(port, host=host)
+        for name in AGENT_PORTS
+        for host, port in [agent_endpoint(name)]
+    }
 
 
 def all_agents_running() -> bool:

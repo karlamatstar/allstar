@@ -90,6 +90,33 @@ def test_ai_and_voc_testcase_child_tabs_are_preserved():
     assert "A·B·C·D 중 하나를 누르면" in VIEWS
 
 
+def test_testcase_management_expanders_scroll_to_opened_section():
+    assert "def _enable_management_expander_scroll" in VIEWS
+    for key in (
+        "ai_case_edit_expander",
+        "ai_case_add_expander",
+        "ai_case_delete_expander",
+        "voc_case_edit_expander",
+        "voc_case_add_expander",
+        "voc_case_delete_expander",
+    ):
+        assert f'key="{key}"' in VIEWS
+    assert "__allstarManagementExpanderScrollInstalled" in VIEWS
+    assert 'if (!summary || !details || details.open) return;' in VIEWS
+    assert '}}, true);' in VIEWS
+    assert "summary.scrollIntoView" in VIEWS
+    assert 'block: "start"' in VIEWS
+
+
+def test_ai_voc_and_k6_use_fixed_autoscroll_terminals():
+    assert "def _render_live_terminal" in VIEWS
+    assert "st.container(height=360, border=True, autoscroll=True, key=key)" in VIEWS
+    assert 'key=f"{state_key}_terminal_{state.get(\'run_id\', \'current\')}"' in VIEWS
+    assert 'key=f"voc_terminal_{run_id}"' in VIEWS
+    assert 'key=f"k6_terminal_{run.run_id}"' in VIEWS
+    assert "wrap_lines=True" in VIEWS
+
+
 def test_dashboard_tabs_theme_and_narrow_layout_are_explicit():
     assert '@media (prefers-color-scheme: dark)' in APP
     assert '--allstar-bg:#0d1420' in APP
@@ -134,7 +161,7 @@ def test_k6_top_tab_has_seven_cards_without_child_tabs():
     ):
         assert label in VIEWS or label in (ROOT / "src" / "allstar" / "ui" / "dashboard" / "k6_load_runner.py").read_text(encoding="utf-8")
     assert "_render_k6_load_test_fragment" in VIEWS
-    assert "st.code(output[-50000:]" in VIEWS
+    assert "max_chars=50000" in VIEWS
     assert 'st.container(height=360, border=True, autoscroll=True' in VIEWS
     assert "시험 중지" in VIEWS
     assert "_scroll_to_k6_run_once" in VIEWS
@@ -152,6 +179,9 @@ def test_k6_top_tab_has_seven_cards_without_child_tabs():
     assert 'grid-column:3 !important' in APP
     assert "args=(vus_key, K6_MIN_VUS, K6_MAX_VUS)" in VIEWS
     assert "args=(duration_key, K6_MIN_DURATION, K6_MAX_DURATION)" in VIEWS
+    assert "가상 인원: 최소 {K6_MIN_VUS}명 · 최대 {K6_MAX_VUS}명" in VIEWS
+    assert "실행 시간: 최소 {K6_MIN_DURATION}초 · 최대 {K6_MAX_DURATION}초" in VIEWS
+    assert "범위를 벗어난 값을 직접 입력하면 최소값 또는 최대값으로 자동 조정됩니다." in VIEWS
     assert "def _clamp_k6_number_input" in VIEWS
     assert "def _enable_k6_number_hold_repeat" in VIEWS
     assert "__allstarK6HoldRepeatInstalled" in VIEWS

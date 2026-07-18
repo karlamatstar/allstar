@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import gzip
+import json
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -156,9 +158,31 @@ def test_voc_report_signature_changes_after_manifest_is_written(tmp_path, monkey
     assert updated[2] == manifest.stat().st_mtime_ns
 
 
-def test_voc_profile_launch_scrolls_to_new_run_area_once():
+def test_latest_voc_judge_log_reads_raw_and_gzip_sources(tmp_path, monkeypatch):
+    monkeypatch.setattr(views, "VOC_LOG_ROOT", tmp_path)
+    run_root = tmp_path / "testcase" / "a" / "run-1"
+    run_root.mkdir(parents=True)
+    raw_path = run_root / "llm_judge_run-1.json"
+    raw_path.write_text(json.dumps({"source": "raw"}), encoding="utf-8")
+
+    assert views._latest_voc_judge_log("A", "run-1") == {"source": "raw"}
+
+    raw_path.unlink()
+    gzip_path = raw_path.with_suffix(".json.gz")
+    with gzip.open(gzip_path, "wt", encoding="utf-8") as handle:
+        json.dump({"source": "gzip"}, handle)
+
+    assert views._latest_voc_judge_log("A", "run-1") == {"source": "gzip"}
+
+
+def test_voc_profile_scrolls_after_launch_and_stage_detail_creation():
     assert "def _scroll_to_voc_run_bottom" in VIEWS
     assert 'st.session_state.voc_scroll_to_run_id = run_id' in VIEWS
+    assert 'st.session_state.voc_scroll_to_detail_run_id = run_id' in VIEWS
     assert 'st.session_state.get("voc_scroll_to_run_id") == run_id' in VIEWS
+    assert 'st.session_state.get("voc_scroll_to_detail_run_id") == run_id' in VIEWS
+    assert '_scroll_to_voc_run_bottom(run_id, "launch")' in VIEWS
+    assert '_scroll_to_voc_run_bottom(run_id, "detail")' in VIEWS
     assert "scrollIntoView" in VIEWS
     assert 'st.session_state.pop("voc_scroll_to_run_id", None)' in VIEWS
+    assert 'st.session_state.pop("voc_scroll_to_detail_run_id", None)' in VIEWS
