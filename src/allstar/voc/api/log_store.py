@@ -2,30 +2,40 @@
 
 from __future__ import annotations
 
-import json
 import threading
+import logging
 from datetime import datetime
 from pathlib import Path
 
 from allstar.shared.paths import VOC_LOG_ROOT
+from allstar.shared.log_retention import append_daily_jsonl, compress_daily_groups
 
 
 LIVE_ROOT = VOC_LOG_ROOT / "live"
 CONVERSATION_DIR = LIVE_ROOT / "conversations"
 JUDGMENT_DIR = LIVE_ROOT / "judgments"
 _LOCK = threading.Lock()
+logger = logging.getLogger("voc.log_store")
 
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
+def maintain_live_logs() -> None:
+    compress_daily_groups((CONVERSATION_DIR, JUDGMENT_DIR))
+
+
+def _compress_after_write() -> None:
+    try:
+        maintain_live_logs()
+    except Exception as error:
+        logger.warning("VOC 라이브 로그 자동 압축 실패: %s", error)
+
+
 def _append(directory: Path, record: dict) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{datetime.now():%Y-%m-%d}.jsonl"
-    line = json.dumps(record, ensure_ascii=False, default=str)
-    with _LOCK, path.open("a", encoding="utf-8") as stream:
-        stream.write(line + "\n")
+    path = append_daily_jsonl(directory, record, lock=_LOCK)
+    _compress_after_write()
     return path
 
 

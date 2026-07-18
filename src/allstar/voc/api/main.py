@@ -42,6 +42,7 @@ from allstar.voc.evaluation.progress import (
 load_dotenv()
 app = FastAPI(title="VOC HTTP Gateway", version="0.1.0")
 app.mount("/metrics", metrics_app)
+log_store.maintain_live_logs()
 initialize_metric_series()
 restore_last_activity_from_logs(log_store.CONVERSATION_DIR)
 

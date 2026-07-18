@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from allstar.ai_agent.api.config import OPENAI_MODEL
+from allstar.ai_agent.api.config import CONVERSATION_LOG_DIR, OPENAI_MODEL
 from allstar.ai_agent.api.judge_agent import JudgeUnavailableError, get_evaluation_from_openai
-from allstar.ai_agent.api.logger_config import CONVERSATION_LOG_FILE, log_conversation, log_evaluation, logger
+from allstar.ai_agent.api.logger_config import maintain_live_logs, log_conversation, log_evaluation, logger
 from allstar.ai_agent.api.metrics import (
     agent_retry_total,
     agent_unavailable_total,
@@ -52,10 +52,11 @@ MODEL_LABELS = {MODEL_API: "실시간-API기반", MODEL_RULE: "실시간-규칙�
 async def lifespan(app: FastAPI):
     # API 키가 없어도 Health, Swagger, 규칙 기반 기능은 실행한다.
     # OpenAI 기능은 실제 호출 시 service_agent와 judge_agent가 키를 검증한다.
+    maintain_live_logs()
     initialize_metric_series()
-    restore_last_activity_from_log(CONVERSATION_LOG_FILE)
+    restore_last_activity_from_log(CONVERSATION_LOG_DIR)
     restore_service_failure_metrics_from_log(
-        CONVERSATION_LOG_FILE,
+        CONVERSATION_LOG_DIR,
         retries_per_failure=API_AGENT_MAX_ATTEMPTS,
     )
     yield

@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from allstar.shared.model_profiles import public_profiles
+from allstar.shared.log_retention import daily_log_paths, read_jsonl
 from allstar.shared.paths import MANIFEST_ROOT, PROJECT_ROOT, VOC_LOG_ROOT, VOC_REPORT_ROOT
 from allstar.voc.api.judge import RUBRIC_VERSION
 from allstar.voc.api.live_report_charts import generate_voc_live_report_charts
@@ -28,11 +29,9 @@ PROFILE_SNAPSHOTS = {profile["profile_id"]: profile for profile in public_profil
 def _records() -> tuple[list[dict], list[str]]:
     rows: list[dict] = []
     sources: list[str] = []
-    for path in sorted(LOG_DIR.glob("*.jsonl")):
+    for path in daily_log_paths(LOG_DIR):
         sources.append(str(path.relative_to(ROOT)))
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                rows.append(json.loads(line))
+        rows.extend(read_jsonl(path, tolerate_invalid=False))
     return rows, sources
 
 

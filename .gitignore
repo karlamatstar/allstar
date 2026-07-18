@@ -14,6 +14,8 @@ _OUTPUT/**/*.md
 _OUTPUT/**/*.docx
 _OUTPUT/**/*.pptx
 _OUTPUT/**/*.png
+_OUTPUT/**/*.gz
+_OUTPUT/**/*.zip
 !_OUTPUT/**/.gitkeep
 
 grafana-data/

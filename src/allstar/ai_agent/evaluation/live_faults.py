@@ -2,21 +2,26 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from allstar.ai_agent.api.logger_config import log_conversation, log_evaluation, logger
+from allstar.ai_agent.api.logger_config import (
+    FAULT_LOG_DIR,
+    compress_ai_live_logs,
+    log_conversation,
+    log_evaluation,
+    logger,
+)
 from allstar.ai_agent.evaluation.live_report_generator import generate_live_report
 from allstar.ai_agent.evaluation.live_report_status import mark_completed, mark_failed, mark_reporting
-from allstar.shared.paths import AI_AGENT_LOG_ROOT
+from allstar.shared.log_retention import append_daily_jsonl
 
 
 AXES = ("accuracy", "groundedness", "helpfulness", "safety", "understandability")
-FAULT_EVENT_LOG = AI_AGENT_LOG_ROOT / "live" / "faults" / "fault_events.jsonl"
+FAULT_EVENT_LOG = FAULT_LOG_DIR / "fault_events.jsonl"  # 구버전 호환·마이그레이션 경로
 FAULT_EVENT_LOCK = threading.Lock()
 
 
@@ -43,9 +48,8 @@ def create_fault_na_evaluation(reason: str, fault_type: str, http_status: int | 
 
 def record_fault_event(event: str, **details: Any) -> None:
     entry = {"timestamp": _utc_now(), "event": event, **details}
-    FAULT_EVENT_LOG.parent.mkdir(parents=True, exist_ok=True)
-    with FAULT_EVENT_LOCK, FAULT_EVENT_LOG.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    append_daily_jsonl(FAULT_LOG_DIR, entry, lock=FAULT_EVENT_LOCK)
+    compress_ai_live_logs()
 
 
 def record_chat_fault(

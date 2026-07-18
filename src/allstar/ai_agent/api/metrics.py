@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 
 from prometheus_client import Counter, Gauge, Histogram, make_asgi_app
+
+from allstar.shared.log_retention import read_daily_jsonl, read_jsonl
 
 metrics_app = make_asgi_app()
 
@@ -59,17 +60,18 @@ def initialize_metric_series() -> None:
             judge_axis_score.labels(axis=axis, model=model)
 
 
+def _log_rows(log_path: Path) -> list[dict]:
+    return read_daily_jsonl(log_path) if log_path.is_dir() else (read_jsonl(log_path) if log_path.exists() else [])
+
+
 def restore_last_activity_from_log(log_path: Path) -> float | None:
     """누적 대화 로그의 최신 시각을 서버 재시작 뒤 Gauge에 복원한다."""
-    if not log_path.exists():
-        return None
     latest: float | None = None
-    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for row in _log_rows(log_path):
         try:
-            row = json.loads(line)
             value = row.get("timestamp")
             timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-        except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
+        except (AttributeError, TypeError, ValueError):
             continue
         latest = timestamp if latest is None else max(latest, timestamp)
     if latest is not None and latest > 0:
@@ -83,16 +85,10 @@ def restore_service_failure_metrics_from_log(
     retries_per_failure: int,
 ) -> dict[str, int]:
     """누적 대화 로그의 실제·강제 장애를 요청·retry/unavailable Counter에 복원한다."""
-    if not log_path.exists():
-        return {"retry": 0, "unavailable": 0, "chat_error": 0, "chat_fallback": 0}
     unavailable_count = 0
     chat_error_count = 0
     chat_fallback_count = 0
-    for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
+    for row in _log_rows(log_path):
         fault = row.get("fault") if isinstance(row, dict) else None
         forced_fault = isinstance(fault, dict) and fault.get("type") in {"http_503", "http_504", "server_down"}
         unavailable_status = isinstance(row, dict) and row.get("status") in {"error", "fallback"}

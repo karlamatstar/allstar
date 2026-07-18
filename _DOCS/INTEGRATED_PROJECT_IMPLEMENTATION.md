@@ -164,11 +164,12 @@ Docker Compose
 ## 4. 로그와 리포트
 
 ```text
-_OUTPUT/logs/ai_agent/live/conversations/conversations.jsonl
-_OUTPUT/logs/ai_agent/live/judgments/live_evaluations.jsonl
+_OUTPUT/logs/ai_agent/live/conversations/YYYY-MM-DD.jsonl[.gz]
+_OUTPUT/logs/ai_agent/live/judgments/YYYY-MM-DD.jsonl[.gz]
+_OUTPUT/logs/ai_agent/live/faults/YYYY-MM-DD.jsonl[.gz]
 _OUTPUT/logs/ai_agent/testcase/
-_OUTPUT/logs/voc/live/conversations/YYYY-MM-DD.jsonl
-_OUTPUT/logs/voc/live/judgments/YYYY-MM-DD.jsonl
+_OUTPUT/logs/voc/live/conversations/YYYY-MM-DD.jsonl[.gz]
+_OUTPUT/logs/voc/live/judgments/YYYY-MM-DD.jsonl[.gz]
 _OUTPUT/logs/voc/testcase/a~d/
 _OUTPUT/logs/voc/cross_validation/
 _OUTPUT/logs/qa/qa_runs.jsonl
@@ -193,7 +194,7 @@ _OUTPUT/reports/performance/
 
 원본 로그와 생성 리포트는 서로 다른 최상위 폴더에 저장한다. 실시간 리포트는 해당 서비스의 실시간 대화·채점 로그만 사용하며 테스트케이스 및 교차검증 결과와 섞지 않는다. 2026-07-16에 기존 `quality/reports/live_log/`, `quality/reports/testcase_log/` 사용을 종료하고 위 구조로 코드·화면·테스트 경로를 이전했다.
 
-AI Agent 실시간 보고서는 사용자 답변을 반환한 뒤 백그라운드에서 두 답변의 채점 로그를 모두 저장하고 자동 갱신한다. 대화·채점 JSONL은 계속 누적하지만 보고서 Markdown·CSV·PNG는 최신본만 유지한다. 상단 요약 표와 그래프를 먼저 표시하고 FAIL·REVIEW·N/A 상세 및 최근 채팅 목록은 접기·펼치기로 제공한다. 세부 기준은 `AI_AGENT_LIVE_REPORT_AUTOMATION.md`를 따른다.
+AI Agent 실시간 보고서는 사용자 답변을 반환한 뒤 백그라운드에서 두 답변의 채점 로그를 모두 저장하고 자동 갱신한다. 대화·채점·장애 JSONL은 한국 날짜별로 계속 누적하고 최근 활동 날짜 5개보다 오래된 종료 로그만 GZIP으로 전환하지만, 보고서 Markdown·CSV·PNG는 압축하지 않고 최신본을 유지한다. 상단 요약 표와 그래프를 먼저 표시하고 FAIL·REVIEW·N/A 상세 및 최근 채팅 목록은 접기·펼치기로 제공한다. 원본·GZIP 공통 조회와 테스트케이스 보존 기준은 `AI_AGENT_LIVE_REPORT_AUTOMATION.md`, `LOG_RETENTION_AND_COMPRESSION.md`를 따른다.
 
 실행 코드가 리포트 폴더에 섞이지 않도록 챗봇 결함 기록기는 `src/allstar/ai_agent/evaluation/defect_logger.py`에 두고, Markdown 결과만 `_OUTPUT/reports/defects/chatbot/`에 저장한다. 성능 리포트 화면도 `_OUTPUT/reports/performance/`를 사용한다.
 

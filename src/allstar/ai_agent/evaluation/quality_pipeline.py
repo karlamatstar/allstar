@@ -144,6 +144,12 @@ def run_pipeline(test_cases: list, timestamp: str) -> list:
     (MANIFEST_DIR / f"ai_agent_batch_{timestamp}.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    try:
+        from allstar.ai_agent.evaluation.log_retention import archive_old_batch_logs
+
+        archive_old_batch_logs(TESTCASE_LOG_DIR, MANIFEST_DIR)
+    except Exception as error:
+        print(f"이전 AI 테스트케이스 로그 자동 압축 실패: {error}")
     print("  파이프라인 완료\n")
     return results
 

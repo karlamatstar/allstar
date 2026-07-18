@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 
 from prometheus_client import REGISTRY, Counter, Gauge, Histogram, make_asgi_app
 
+from allstar.shared.log_retention import read_daily_jsonl
 from allstar.voc.api.progress_metrics import VocProgressMetricsCollector
 from allstar.voc.api.testcase_metrics import VocTestcaseReportCollector
 
@@ -69,18 +69,16 @@ def restore_last_activity_from_logs(conversation_dir: Path) -> dict[str, float]:
     latest: dict[str, float] = {}
     if not conversation_dir.exists():
         return latest
-    for path in sorted(conversation_dir.glob("*.jsonl")):
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                row = json.loads(line)
-                profile = str(row.get("profile_id") or "").upper()
-                value = row.get("finished_at") or row.get("timestamp")
-                timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
-            except (AttributeError, TypeError, ValueError, json.JSONDecodeError):
-                continue
-            if profile not in {"A", "B", "C", "D"}:
-                continue
-            latest[profile] = max(latest.get(profile, 0.0), timestamp)
+    for row in read_daily_jsonl(conversation_dir):
+        try:
+            profile = str(row.get("profile_id") or "").upper()
+            value = row.get("finished_at") or row.get("timestamp")
+            timestamp = datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if profile not in {"A", "B", "C", "D"}:
+            continue
+        latest[profile] = max(latest.get(profile, 0.0), timestamp)
     for profile, timestamp in latest.items():
         if timestamp > 0:
             voc_chat_last_activity.labels(profile=profile).set(timestamp)

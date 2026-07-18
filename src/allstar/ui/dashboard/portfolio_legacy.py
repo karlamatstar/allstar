@@ -10,6 +10,7 @@ import plotly.express as px
 import streamlit as st
 
 from allstar.ai_agent.evaluation.live_report_generator import KST, format_period, to_kst
+from allstar.shared.log_retention import read_daily_jsonl, read_jsonl
 from allstar.shared.paths import AI_AGENT_LOG_ROOT, AI_AGENT_REPORT_ROOT, PROJECT_ROOT, REPORT_ROOT
 
 st.set_page_config(
@@ -47,8 +48,8 @@ LIVE_REPORT_MD_PATH = LIVE_REPORTS_DIR / "live_report.md"
 VALIDATION_REPORT_MD_PATH = REPORT_ROOT / "defects" / "chaos" / "defect_report.md"
 PERFORMANCE_REPORT_MD_PATH = REPORT_ROOT / "performance" / "performance_report.md"
 TESTCASE_LOG_DIR = AI_AGENT_LOG_ROOT / "testcase"
-CONVERSATIONS_LOG = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
-LIVE_EVAL_LOG = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
+CONVERSATIONS_LOG = AI_AGENT_LOG_ROOT / "live" / "conversations"
+LIVE_EVAL_LOG = AI_AGENT_LOG_ROOT / "live" / "judgments"
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 GRAFANA_BASE_URL = os.environ.get("GRAFANA_BASE_URL", "http://localhost:3000")
@@ -242,17 +243,7 @@ def load_live_report() -> pd.DataFrame | None:
 
 @st.cache_data(ttl=10)
 def load_jsonl(path: Path, limit: int = 200) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame()
-
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
-
+    rows = read_daily_jsonl(path) if path.is_dir() else (read_jsonl(path) if path.exists() else [])
     return pd.DataFrame(rows[-limit:])
 
 

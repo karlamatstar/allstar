@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from allstar.shared.model_profiles import ModelProfile
+from allstar.shared.log_retention import read_json
 from allstar.voc.evaluation import llm_judge
 
 
@@ -34,7 +35,7 @@ def _report_environment(profile: ModelProfile, run_id: str):
 
 def rebuild_profile_report_from_log(log_path: Path, report_dir: Path, profile: ModelProfile) -> dict:
     """Judge JSON 로그의 전체 사례 결과로 CSV·JSON·Markdown·그래프를 재생성한다."""
-    data = json.loads(log_path.read_text(encoding="utf-8"))
+    data = read_json(log_path)
     rows = data.get("case_results") or []
     if not rows:
         raise ValueError(f"보고서로 변환할 사례 결과가 없습니다: {log_path}")

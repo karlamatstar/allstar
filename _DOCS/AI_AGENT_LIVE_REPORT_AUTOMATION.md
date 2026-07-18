@@ -22,8 +22,9 @@
 ## 저장 구조
 
 ```text
-_OUTPUT/logs/ai_agent/live/conversations/conversations.jsonl
-_OUTPUT/logs/ai_agent/live/judgments/live_evaluations.jsonl
+_OUTPUT/logs/ai_agent/live/conversations/YYYY-MM-DD.jsonl[.gz]
+_OUTPUT/logs/ai_agent/live/judgments/YYYY-MM-DD.jsonl[.gz]
+_OUTPUT/logs/ai_agent/live/faults/YYYY-MM-DD.jsonl[.gz]
 
 _OUTPUT/reports/ai_agent/live/live_report.md
 _OUTPUT/reports/ai_agent/live/live_report.csv
@@ -33,11 +34,14 @@ _OUTPUT/reports/ai_agent/live/assets/quality_axis_average.png
 _OUTPUT/reports/ai_agent/live/assets/response_latency_trend.png
 ```
 
-- 대화와 채점 JSONL은 삭제하거나 덮어쓰지 않고 계속 누적한다.
+- 대화·채점·장애 JSONL은 한국 로컬 날짜별로 계속 누적한다.
+- 로그가 존재하는 최근 활동 날짜 5개와 오늘 파일은 원본으로 유지하고 이전 종료 날짜 로그만 검증 후 GZIP으로 자동 압축한다.
+- 보고서와 대시보드는 원본 JSONL과 GZIP을 함께 읽으므로 압축 전후 집계 결과가 같다.
 - Markdown·CSV·PNG는 누적 로그 전체를 다시 집계한 최신본으로 교체한다.
 - 매 채팅마다 거의 같은 보고서 이력 사본을 만들지 않는다. 원본 JSONL이 시간별 증적 역할을 한다.
 - 보고서 파일과 PNG는 임시 파일을 완성한 뒤 교체하여 작성 중인 불완전한 파일 노출을 줄인다.
 - 한 프로세스 안에서 여러 채팅이 동시에 완료되어도 보고서 생성은 한 번에 하나씩 진행한다.
+- 기존 단일 누적 파일은 날짜별 행과 전체 백업의 무결성을 검증한 뒤 자동 전환하며, 마이그레이션 manifest로 중복 읽기를 방지한다.
 
 ## 보고서 구성
 
@@ -122,5 +126,13 @@ _OUTPUT/reports/ai_agent/live/assets/response_latency_trend.png
 - `portfolio-api`만 실제 중단되어 AI 채팅 Health 연결이 실패하는 동안 VOC·Prometheus·Grafana가 계속 실행되는 것을 확인했다.
 - 재접속 경로가 컨테이너를 다시 시작하고 `/health` HTTP 200을 확인한 뒤 채팅을 복구하는 것을 확인했다.
 - 장애 기능 집중 테스트 23개와 외부 AI 실행 경로를 제외한 전체 회귀 258개가 통과했다. 외부 AI 모델은 호출하지 않았다.
+
+## 2026-07-18 날짜별 저장·압축 검증
+
+- 기존 누적 원본을 날짜별로 전환한 뒤 대화 40행·채점 80행·장애 40행이 그대로 조회됐다.
+- 같은 로그로 최신 보고서를 재생성해 CSV 80행과 요약의 대화 40건·평가 80건이 유지됐다.
+- Docker 재빌드 뒤 마지막 활동과 retry·unavailable 지표가 날짜별 원본·GZIP 공통 조회 경로에서 복원됐다.
+- 최신 활동 날짜 5개 보존과 오래된 로그 압축, 전환 중 중복 방지, 보고서 제외를 포함한 전체 비API 회귀 `300개 통과·3개 건너뜀·2개 선택 제외`를 확인했다.
+- 외부 AI API는 호출하지 않았다. 세부 보존 정책은 `LOG_RETENTION_AND_COMPRESSION.md`를 따른다.
 - 화면 개선을 포함한 전체 비API 회귀는 169개 통과, 실제 API 종단 2개 선택 제외로 완료했다.
 - 이 추가 검증에서도 실제 OpenAI·Anthropic 답변·채점 API는 호출하지 않았다.

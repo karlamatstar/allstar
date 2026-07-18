@@ -70,6 +70,8 @@
    - Docker Streamlit의 AI 실제 서버 중단과 AI·VOC 재접속을 위한 제한된 서비스 제어 기준
 30. `AWS_REVERSIBLE_DEPLOYMENT_AND_LOCAL_RESTORE.md`
    - 향후 AWS 배포 시 Prometheus·Grafana·로그·보고서를 로컬로 회수하고 복원한 뒤 안전하게 종료하는 기준
+31. `LOG_RETENTION_AND_COMPRESSION.md`
+   - AI·VOC 날짜별 라이브 로그, 최근 활동 5개 원본 유지, 과거 GZIP 압축과 보고서·지표 호환 기준
 
 ## 문서 상태 해석 원칙
 

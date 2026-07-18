@@ -17,12 +17,13 @@ from allstar.ai_agent.evaluation.report_generator import (
     AXIS_LABELS_MD, SCORE_COLS_MD, decision_badge,
 )
 from allstar.ai_agent.evaluation.live_report_charts import generate_live_report_charts
+from allstar.shared.log_retention import read_daily_jsonl, read_jsonl
 from allstar.shared.paths import AI_AGENT_LOG_ROOT, AI_AGENT_REPORT_ROOT
 
 REPORTS_DIR = AI_AGENT_REPORT_ROOT / "live"
 ASSETS_DIR = REPORTS_DIR / "assets"
-CONVERSATIONS_LOG = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
-LIVE_EVAL_LOG = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
+CONVERSATIONS_LOG = AI_AGENT_LOG_ROOT / "live" / "conversations"
+LIVE_EVAL_LOG = AI_AGENT_LOG_ROOT / "live" / "judgments"
 REPORT_GENERATION_LOCK = threading.Lock()
 
 MODEL_LABELS = {"api": "API 기반", "rule": "규칙 기반"}
@@ -38,18 +39,9 @@ def to_kst(timestamps: pd.Series) -> pd.Series:
 
 
 def _read_jsonl(path: Path) -> list[dict]:
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            # 다른 채팅 요청이 마지막 JSONL 행을 쓰는 순간 읽은 경우 다음 자동 갱신에서 반영한다.
-            continue
-    return rows
+    if path.is_dir():
+        return read_daily_jsonl(path)
+    return read_jsonl(path) if path.exists() else []
 
 
 def build_rows(conversations: list[dict], evaluations: list[dict]) -> list[dict]:

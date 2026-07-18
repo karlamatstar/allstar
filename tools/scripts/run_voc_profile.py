@@ -243,6 +243,12 @@ def main() -> int:
         final_status,
         f"독립 LLM Judge 실패 사례: {', '.join(judge_failures)}" if judge_failures else None,
     )
+    try:
+        from allstar.voc.evaluation.log_retention import archive_old_profile_runs
+
+        archive_old_profile_runs(log_dir.parent)
+    except Exception as error:
+        print(f"이전 VOC 테스트케이스 로그 자동 압축 실패: {error}", flush=True)
     if result.returncode:
         return result.returncode
     if judge_failures:

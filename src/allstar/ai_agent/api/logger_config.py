@@ -1,12 +1,19 @@
-import json
 import logging
 import threading
 from datetime import datetime, timezone
 
 from allstar.ai_agent.api.config import CONVERSATION_LOG_DIR, JUDGMENT_LOG_DIR
+from allstar.shared.log_retention import (
+    append_daily_jsonl,
+    compress_daily_groups,
+    migrate_legacy_jsonl,
+)
+from allstar.shared.paths import AI_AGENT_LOG_ROOT
 
-CONVERSATION_LOG_FILE = CONVERSATION_LOG_DIR / "conversations.jsonl"
-EVALUATION_LOG_FILE = JUDGMENT_LOG_DIR / "live_evaluations.jsonl"
+FAULT_LOG_DIR = AI_AGENT_LOG_ROOT / "live" / "faults"
+CONVERSATION_LOG_FILE = CONVERSATION_LOG_DIR / "conversations.jsonl"  # 마이그레이션할 구버전 파일
+EVALUATION_LOG_FILE = JUDGMENT_LOG_DIR / "live_evaluations.jsonl"  # 마이그레이션할 구버전 파일
+FAULT_EVENT_LOG_FILE = FAULT_LOG_DIR / "fault_events.jsonl"  # 마이그레이션할 구버전 파일
 CONVERSATION_LOG_LOCK = threading.Lock()
 EVALUATION_LOG_LOCK = threading.Lock()
 
@@ -16,6 +23,21 @@ if not logger.handlers:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s %(message)s"))
     logger.addHandler(handler)
+
+
+def maintain_live_logs() -> None:
+    """구버전 누적 파일을 날짜별로 전환하고 오래된 활동 날짜를 압축한다."""
+    migrate_legacy_jsonl(CONVERSATION_LOG_FILE, CONVERSATION_LOG_DIR)
+    migrate_legacy_jsonl(EVALUATION_LOG_FILE, JUDGMENT_LOG_DIR)
+    migrate_legacy_jsonl(FAULT_EVENT_LOG_FILE, FAULT_LOG_DIR)
+    compress_daily_groups((CONVERSATION_LOG_DIR, JUDGMENT_LOG_DIR, FAULT_LOG_DIR))
+
+
+def compress_ai_live_logs() -> None:
+    try:
+        compress_daily_groups((CONVERSATION_LOG_DIR, JUDGMENT_LOG_DIR, FAULT_LOG_DIR))
+    except Exception as error:
+        logger.warning("AI 라이브 로그 자동 압축 실패: %s", error)
 
 
 def log_conversation(question: str, answer: str, latency_ms: float, status: str = "success",
@@ -35,8 +57,8 @@ def log_conversation(question: str, answer: str, latency_ms: float, status: str 
     }
     if fault:
         entry["fault"] = fault
-    with CONVERSATION_LOG_LOCK, open(CONVERSATION_LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    append_daily_jsonl(CONVERSATION_LOG_DIR, entry, lock=CONVERSATION_LOG_LOCK)
+    compress_ai_live_logs()
 
 
 def log_evaluation(question: str, evaluation: dict, model: str = "api", request_id: str | None = None) -> None:
@@ -49,5 +71,5 @@ def log_evaluation(question: str, evaluation: dict, model: str = "api", request_
         "model": model,
         "evaluation": evaluation,
     }
-    with EVALUATION_LOG_LOCK, open(EVALUATION_LOG_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    append_daily_jsonl(JUDGMENT_LOG_DIR, entry, lock=EVALUATION_LOG_LOCK)
+    compress_ai_live_logs()

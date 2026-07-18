@@ -23,6 +23,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from allstar.ai_agent.evaluation.live_report_status import ACTIVE_STATES, STATUS_PATH, read_status
+from allstar.shared.log_retention import read_daily_jsonl, read_jsonl
 from allstar.shared.model_profiles import public_profiles
 from allstar.shared.paths import (
     AI_AGENT_LOG_ROOT,
@@ -87,8 +88,8 @@ VOC_CASES_PATH = Path(
 TEST_CASE_ARCHIVE_ROOT = os.getenv("TEST_CASE_ARCHIVE_ROOT", "").strip()
 AI_BATCH_REPORT = AI_AGENT_REPORT_ROOT / "batch" / "evaluation_result.csv"
 AI_LIVE_REPORT = AI_AGENT_REPORT_ROOT / "live" / "live_report.csv"
-AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations" / "conversations.jsonl"
-AI_JUDGMENTS = AI_AGENT_LOG_ROOT / "live" / "judgments" / "live_evaluations.jsonl"
+AI_CONVERSATIONS = AI_AGENT_LOG_ROOT / "live" / "conversations"
+AI_JUDGMENTS = AI_AGENT_LOG_ROOT / "live" / "judgments"
 VOC_LIVE_CONVERSATION_DIR = VOC_LOG_ROOT / "live" / "conversations"
 PROCESS_LOG_ROOT = PROJECT_ROOT / "_OUTPUT" / "logs" / "services" / "launcher"
 GRAFANA_DASHBOARD_PATHS = {
@@ -270,15 +271,8 @@ def _read_csv(path: Path) -> pd.DataFrame | None:
 
 @st.cache_data(ttl=2)
 def _read_jsonl(path: Path, limit: int = 500) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame()
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines()[-limit:]:
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return pd.DataFrame(rows)
+    rows = read_daily_jsonl(path) if path.is_dir() else (read_jsonl(path) if path.exists() else [])
+    return pd.DataFrame(rows[-limit:])
 
 
 @st.cache_data(ttl=2, show_spinner=False)
@@ -1071,18 +1065,7 @@ def _render_profile_cards(
 
 @st.cache_data(ttl=2, show_spinner=False)
 def _read_voc_live_rows(directory: Path = VOC_LIVE_CONVERSATION_DIR) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    if not directory.exists():
-        return rows
-    for path in sorted(directory.glob("*.jsonl")):
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(row, dict):
-                rows.append(row)
-    return rows
+    return read_daily_jsonl(directory)
 
 
 def _clear_voc_live_caches() -> None:
@@ -2605,10 +2588,18 @@ def _latest_voc_judge_log(profile: str, run_id: str | None = None) -> dict | Non
     root = VOC_LOG_ROOT / "testcase" / profile.lower()
     if run_id:
         root = root / run_id
-    paths = sorted(root.glob("*/llm_judge_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    paths = sorted(
+        [*root.glob("*/llm_judge_*.json"), *root.glob("*/llm_judge_*.json.gz")],
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
     if run_id:
-        paths = sorted(root.glob("llm_judge_*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
-    return _read_json(paths[0], None) if paths else None
+        paths = sorted(
+            [*root.glob("llm_judge_*.json"), *root.glob("llm_judge_*.json.gz")],
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+    return read_json(paths[0]) if paths else None
 
 
 def _analysis_sections(analysis: str) -> dict[str, str]:
