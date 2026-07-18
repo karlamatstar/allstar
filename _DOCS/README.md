@@ -68,6 +68,8 @@
    - 로컬 Docker Streamlit, K6 전용 실행 서비스, 공유 데이터·중지·AWS 선택 기준
 29. `CHAT_SERVICE_CONTROL_BRIDGE.md`
    - Docker Streamlit의 AI 실제 서버 중단과 AI·VOC 재접속을 위한 제한된 서비스 제어 기준
+30. `AWS_REVERSIBLE_DEPLOYMENT_AND_LOCAL_RESTORE.md`
+   - 향후 AWS 배포 시 Prometheus·Grafana·로그·보고서를 로컬로 회수하고 복원한 뒤 안전하게 종료하는 기준
 
 ## 문서 상태 해석 원칙
 
