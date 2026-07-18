@@ -33,18 +33,18 @@ def test_mcp_instance_exists():
     assert tools.mcp.name == "voc_mcp"
 
 
-@pytest.mark.parametrize("tool_name", REQUIRED_TOOLS)
-def test_required_mcp_tool_registered(tool_name):
-    """필수 MCP 도구가 서버에 등록되어 있는가."""
-    assert tool_name in _registered_tool_names(), (
-        f"MCP 도구 '{tool_name}'이 등록되어 있지 않습니다. 등록된 도구: {_registered_tool_names()}"
-    )
+def test_required_mcp_tools_registered():
+    """필수 MCP 도구가 서버에 모두 등록되어 있는가."""
+    registered = _registered_tool_names()
+    missing = [tool_name for tool_name in REQUIRED_TOOLS if tool_name not in registered]
+    assert not missing, f"필수 MCP 도구 누락: {missing}. 등록된 도구: {registered}"
 
 
-@pytest.mark.parametrize("tool_name", OPTIONAL_TOOLS)
-def test_optional_mcp_tool_registered(tool_name):
-    """보조 MCP 도구(요약 전용, 정책 전용)가 등록되어 있는가."""
-    assert tool_name in _registered_tool_names()
+def test_optional_mcp_tools_registered():
+    """보조 MCP 도구(요약 전용, 정책 전용)가 모두 등록되어 있는가."""
+    registered = _registered_tool_names()
+    missing = [tool_name for tool_name in OPTIONAL_TOOLS if tool_name not in registered]
+    assert not missing, f"보조 MCP 도구 누락: {missing}. 등록된 도구: {registered}"
 
 
 def test_main_py_runs_mcp_stdio():

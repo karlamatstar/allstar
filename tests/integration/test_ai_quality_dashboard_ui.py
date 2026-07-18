@@ -14,7 +14,7 @@ def test_ai_chat_confirmation_and_chat_panel_order_are_explicit():
     assert "disabled=not api_confirmed or bool(pending) or server_down" in section
 
 
-def test_ai_chat_shows_user_first_and_typing_state_inside_chat_window():
+def test_ai_and_voc_chat_panels_emphasize_input_and_show_typing_state():
     assert "AI_CHAT_EXECUTOR.submit(_request_ai_chat, question)" in VIEWS
     assert "history.append({\"role\": \"user\"" in VIEWS
     assert "답변을 입력하고 있습니다" in VIEWS
@@ -23,6 +23,13 @@ def test_ai_chat_shows_user_first_and_typing_state_inside_chat_window():
     assert 'stChatMessageAvatarUser' in APP
     assert 'stChatMessageAvatarAssistant' in APP
     assert "flex-direction:row-reverse" in APP
+    assert "border-width:2px !important" in APP
+    assert '[data-testid="stChatInput"]:focus-within' in APP
+    assert ".chat-input-guide" in APP
+    assert ':has(.chat-input-guide)' in APP
+    assert "min-height:2.25rem !important" in APP
+    assert "<div class='chat-input-guide'>메시지 입력</div>" in VIEWS
+    assert "<div class='chat-input-guide'>VOC 메시지 입력</div>" in VIEWS
 
 
 def test_live_and_batch_quality_charts_share_grouped_pagination():
@@ -62,6 +69,9 @@ def test_ai_chat_fault_buttons_and_reconnect_are_explicit():
     assert "실제 채팅 서버 중단 실행" not in VIEWS
     assert "서버 중단 취소" not in VIEWS
     assert 'key="ai_chat_server_down_notice"' in VIEWS
+    assert 'key="ai_fault_503"' in VIEWS
+    assert 'key="ai_fault_504"' in VIEWS
+    assert 'key="ai_fault_server_down"' in VIEWS
     assert "서버 중단 결과를 AI 답변 말풍선" in (ROOT / "_DOCS" / "AI_CHAT_FAULT_TEST_BUTTONS.md").read_text(encoding="utf-8")
     assert "st-key-ai_chat_server_down_notice" in APP
 

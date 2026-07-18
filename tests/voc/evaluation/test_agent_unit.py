@@ -9,49 +9,50 @@
 
 import ast
 
-import pytest
 from allstar.voc.evaluation import runtime_support
 from allstar.voc.evaluation.runtime_support import AGENT_FILES, AGENT_PORTS, ROOT
 
-AGENT_NAMES = list(AGENT_FILES.keys())
+def test_all_agent_files_exist():
+    """6개 에이전트 소스 파일이 모두 존재하는가."""
+    missing = [rel_path for rel_path, _ in AGENT_FILES.values() if not (ROOT / rel_path).exists()]
+    assert not missing, "에이전트 소스 파일 누락:\n- " + "\n- ".join(missing)
 
 
-@pytest.mark.parametrize("agent", AGENT_NAMES)
-def test_agent_file_exists(agent):
-    """에이전트 소스 파일이 존재하는가."""
-    rel_path, _ = AGENT_FILES[agent]
-    assert (ROOT / rel_path).exists(), f"{rel_path} 파일이 없습니다"
+def test_all_agent_files_have_valid_syntax():
+    """6개 에이전트 소스 파일이 문법 오류 없이 모두 파싱되는가."""
+    errors = []
+    for rel_path, _ in AGENT_FILES.values():
+        try:
+            ast.parse((ROOT / rel_path).read_text(encoding="utf-8"))
+        except SyntaxError as error:
+            errors.append(f"{rel_path}:{error.lineno} {error.msg}")
+    assert not errors, "에이전트 문법 오류:\n- " + "\n- ".join(errors)
 
 
-@pytest.mark.parametrize("agent", AGENT_NAMES)
-def test_agent_file_syntax(agent):
-    """에이전트 소스 파일이 문법 오류 없이 파싱되는가."""
-    rel_path, _ = AGENT_FILES[agent]
-    source = (ROOT / rel_path).read_text(encoding="utf-8")
-    ast.parse(source)  # SyntaxError 발생 시 테스트 실패
+def test_all_agent_files_define_required_symbols():
+    """6개 에이전트 파일이 각자의 핵심 클래스와 serve 함수를 모두 정의하는가."""
+    errors = []
+    for rel_path, symbols in AGENT_FILES.values():
+        tree = ast.parse((ROOT / rel_path).read_text(encoding="utf-8"))
+        defined = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        missing = [symbol for symbol in symbols if symbol not in defined]
+        if missing:
+            errors.append(f"{rel_path}: {', '.join(missing)}")
+    assert not errors, "에이전트 필수 심볼 누락:\n- " + "\n- ".join(errors)
 
 
-@pytest.mark.parametrize("agent", AGENT_NAMES)
-def test_agent_required_symbols(agent):
-    """에이전트 파일에 핵심 클래스와 serve 함수가 정의되어 있는가."""
-    rel_path, symbols = AGENT_FILES[agent]
-    source = (ROOT / rel_path).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    defined = {
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-    }
-    missing = [s for s in symbols if s not in defined]
-    assert not missing, f"{rel_path}에 누락된 심볼: {missing}"
-
-
-@pytest.mark.parametrize("agent", AGENT_NAMES)
-def test_agent_has_main_entry(agent):
-    """python -m agents.<name>으로 실행 가능한 진입점(__main__)이 있는가."""
-    rel_path, _ = AGENT_FILES[agent]
-    source = (ROOT / rel_path).read_text(encoding="utf-8")
-    assert '__main__' in source, f"{rel_path}에 __main__ 진입점이 없습니다"
+def test_all_agent_files_have_main_entry():
+    """6개 에이전트가 모두 python -m 실행 진입점(__main__)을 제공하는가."""
+    missing = [
+        rel_path
+        for rel_path, _ in AGENT_FILES.values()
+        if "__main__" not in (ROOT / rel_path).read_text(encoding="utf-8")
+    ]
+    assert not missing, "__main__ 진입점 누락:\n- " + "\n- ".join(missing)
 
 
 def test_agent_ports_are_unique():

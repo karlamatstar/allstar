@@ -21,6 +21,10 @@ def test_top_navigation_has_four_left_and_three_right_tabs():
     positions = [navigation.index(label) for label in labels]
 
     assert positions == sorted(positions)
+    assert 'page_title="AI Agent QA AllStar"' in APP
+    assert "⭐ AI Agent QA AllStar" in APP
+    assert "독립 품질 평가" in VIEWS
+    assert "테스트케이스 관리" in VIEWS
     assert 'nth-child(5)' in APP
     assert "margin-left:auto" in APP
 
@@ -129,6 +133,18 @@ def test_dashboard_tabs_theme_and_narrow_layout_are_explicit():
     assert '@media (max-width:900px)' in APP
     assert '@media (max-width:600px)' in APP
     assert 'overflow-x:auto; flex-wrap:nowrap' in APP
+    assert "--allstar-positive:" in APP
+    assert "--allstar-danger:" in APP
+    assert "--allstar-disabled:" in APP
+    assert '[data-testid="stBaseButton-primary"] * {color:#fff !important;}' in APP
+    assert '[class*="st-key-stop_"] button' in APP
+    assert '[class*="st-key-ai_fault_"] button' in APP
+    assert '[class*="st-key-voc_chat_profile_"] button:not(:disabled)' in APP
+    assert '[class*="st-key-k6_card_"][class*="_failed"]' in APP
+    assert "border:2px solid var(--allstar-danger)" in APP
+    assert ".stApp button:disabled" in APP
+    assert ".stApp button:disabled *" in APP
+    assert "cursor:not-allowed" in APP
 
 
 def test_all_streamlit_external_api_entrypoints_use_required_confirmation_box():

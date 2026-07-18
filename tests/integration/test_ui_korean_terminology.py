@@ -31,20 +31,6 @@ def test_qa_control_explains_test_and_model_terms_in_korean():
     assert "낮음(low)" in source
 
 
-def test_integrated_dashboard_uses_korean_first_navigation_and_explanations():
-    source = read("src/allstar/ui/dashboard/streamlit_app.py")
-    views = read("src/allstar/ui/dashboard/views.py")
-
-    assert 'page_title="AI Agent QA AllStar"' in source
-    assert "⭐ AI Agent QA AllStar" in source
-    assert "AI 에이전트 챗봇" in source
-    assert "VOC 챗봇" in source
-    assert "보고서 모음" in source
-    assert "모니터링" in source
-    assert "독립 품질 평가" in views
-    assert "테스트케이스 관리" in views
-
-
 def test_voc_profile_cards_keep_equal_responsive_heights():
     source = read("src/allstar/ui/dashboard/streamlit_app.py")
     views = read("src/allstar/ui/dashboard/views.py")
