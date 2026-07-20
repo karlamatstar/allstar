@@ -207,6 +207,15 @@ def test_top_actions_are_declared_refresh_start_server_stop_docker_stop_order():
     assert '"#a32626"' in action_specs
 
 
+def test_server_control_shows_first_start_build_guidance():
+    source = (ROOT / "tools" / "server_control" / "main.py").read_text(encoding="utf-8")
+
+    assert "FIRST_START_GUIDANCE" in source
+    assert "첫 실행 시 Docker 이미지 빌드 및 패키지 준비로 10분 이상 걸릴 수 있습니다." in source
+    assert "완료될 때까지 창을 닫거나 '전체 시작'을 다시 누르지 마세요." in source
+    assert 'text=f"ℹ {FIRST_START_GUIDANCE}"' in source
+
+
 def test_server_start_rebuilds_images_and_shutdown_keeps_docker_by_default():
     source = (ROOT / "tools" / "server_control" / "main.py").read_text(encoding="utf-8")
 

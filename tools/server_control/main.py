@@ -41,6 +41,10 @@ SHUTDOWN_LOG = LOG_DIR / "shutdown_guard.log"
 DEFAULT_WINDOW_SIZE = (1440, 900)
 MINIMUM_WINDOW_SIZE = (1200, 820)
 LEFT_PANEL_WIDTH = 440
+FIRST_START_GUIDANCE = (
+    "첫 실행 시 Docker 이미지 빌드 및 패키지 준비로 10분 이상 걸릴 수 있습니다. "
+    "완료될 때까지 창을 닫거나 '전체 시작'을 다시 누르지 마세요."
+)
 
 SERVICES = [
     ("컨테이너 실행 환경 (Docker Desktop)", "docker-desktop", None, None, "system"),
@@ -139,6 +143,18 @@ class ServerControl(tk.Tk):
             button = self._button(actions, label, command, color)
             button.pack(side="left", padx=4)
             self.action_buttons.append(button)
+
+        guidance = tk.Frame(self, bg="#25324a", highlightbackground="#496080", highlightthickness=1)
+        guidance.pack(fill="x", padx=14, pady=(0, 10))
+        tk.Label(
+            guidance,
+            text=f"ℹ {FIRST_START_GUIDANCE}",
+            bg="#25324a",
+            fg="#d9e7ff",
+            anchor="w",
+            justify="left",
+            font=("Malgun Gothic", 9, "bold"),
+        ).pack(fill="x", padx=12, pady=8)
 
         body = tk.PanedWindow(self, orient="horizontal", sashwidth=6, bg="#151923")
         body.pack(fill="both", expand=True, padx=14, pady=(0, 14))
