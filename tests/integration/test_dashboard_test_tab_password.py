@@ -40,8 +40,9 @@ def test_three_top_test_tabs_are_independently_password_protected():
     assert '[data-testid="stFormSubmitButton"] button:not(:disabled)' in APP
     assert "비밀번호가 올바르지 않습니다. 비밀번호를 다시 입력해 주세요." in APP
     assert "test_tab_access_{tab_key}" in APP
-    assert "gate.empty()" in APP
-    assert "st.rerun()" not in APP.split("def _render_password_protected_test_tab", 1)[1].split("st.set_page_config", 1)[0]
+    assert "@st.fragment\ndef _render_test_tab_password_gate" in APP
+    assert 'st.rerun(scope="app")' in APP
+    assert APP.index("with tab_k6_load:") < APP.index("with tab_ai_chat:")
     for call in expected:
         assert call in APP
 

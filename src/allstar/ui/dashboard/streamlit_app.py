@@ -23,15 +23,10 @@ def _test_tab_access_keys(tab_key: str) -> tuple[str, str, str]:
     )
 
 
-def _render_password_protected_test_tab(tab_key: str, title: str, renderer) -> None:
+@st.fragment
+def _render_test_tab_password_gate(tab_key: str, title: str) -> None:
     access_key, input_key, error_key = _test_tab_access_keys(tab_key)
-    if st.session_state.get(access_key, False):
-        renderer()
-        return
-
-    unlocked_now = False
-    gate = st.empty()
-    with gate.container(border=True):
+    with st.container(border=True):
         st.subheader(f"{title} 접근 확인")
         st.caption("이 테스트 화면을 사용하려면 비밀번호를 입력해 주세요.")
         with st.form(f"test_tab_password_form_{tab_key}"):
@@ -50,16 +45,20 @@ def _render_password_protected_test_tab(tab_key: str, title: str, renderer) -> N
             if matches_test_tab_password(password):
                 st.session_state[access_key] = True
                 st.session_state[error_key] = False
-                unlocked_now = True
+                st.rerun(scope="app")
             else:
                 st.session_state[access_key] = False
                 st.session_state[error_key] = True
         if st.session_state.get(error_key, False):
             st.error("비밀번호가 올바르지 않습니다. 비밀번호를 다시 입력해 주세요.")
 
-    if unlocked_now:
-        gate.empty()
+
+def _render_password_protected_test_tab(tab_key: str, title: str, renderer) -> None:
+    access_key, _input_key, _error_key = _test_tab_access_keys(tab_key)
+    if st.session_state.get(access_key, False):
         renderer()
+        return
+    _render_test_tab_password_gate(tab_key, title)
 
 
 st.set_page_config(page_title="AI Agent QA AllStar", page_icon="⭐", layout="wide")
@@ -592,6 +591,15 @@ watch_voc_report_updates()
     ]
 )
 
+with tab_k6_load:
+    _render_password_protected_test_tab("k6_load", "K6 부하 테스트", render_k6_load_test)
+
+with tab_ai_cases:
+    _render_password_protected_test_tab("ai_testcases", "AI 에이전트 테스트케이스", render_ai_testcases)
+
+with tab_voc_cases:
+    _render_password_protected_test_tab("voc_testcases", "VOC 테스트케이스", render_voc_testcases)
+
 with tab_ai_chat:
     render_ai_chat()
 
@@ -603,12 +611,3 @@ with tab_monitoring:
 
 with tab_reports:
     render_reports()
-
-with tab_k6_load:
-    _render_password_protected_test_tab("k6_load", "K6 부하 테스트", render_k6_load_test)
-
-with tab_ai_cases:
-    _render_password_protected_test_tab("ai_testcases", "AI 에이전트 테스트케이스", render_ai_testcases)
-
-with tab_voc_cases:
-    _render_password_protected_test_tab("voc_testcases", "VOC 테스트케이스", render_voc_testcases)
