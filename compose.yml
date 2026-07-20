@@ -89,6 +89,7 @@ services:
     environment:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DASHBOARD_TEST_TABS_PASSWORD: ${DASHBOARD_TEST_TABS_PASSWORD:-1234}
       PORTFOLIO_API_URL: http://portfolio-api:8000
       VOC_API_URL: http://voc-api:8100
       PROMETHEUS_URL: http://prometheus:9090
